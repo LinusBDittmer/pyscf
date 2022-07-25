@@ -12,22 +12,15 @@ of DIIS.  Without other convergence technique, none of them can converge.
 '''
 
 from pyscf import gto, scf, dft
-import time
 
-atom_str = 'Cr 0 0 0; Cr 0 0 1.5'
-mol = gto.M(atom=atom_str, basis='631g*')
-mol2 = gto.M(atom=atom_str, basis='631g*')
+mol = gto.M(atom='O 0 0 0; O 0 0 1.222', basis='631g*')
 
 #
 # Default DIIS scheme is CDIIS.  DIIS parameters can be assigned to mf object
 # with prefix ".diis_"
 #
 mf = scf.HF(mol)
-mf2 = scf.HF(mol2)
-mf.max_cycle = 100
-mf2.max_cycle = 100
 #mf.diis_space = 14
-
 #mf.diis_file = 'o2_diis.h5'
 #mf.run()
 
@@ -58,27 +51,11 @@ mf2.max_cycle = 100
 #mf.diis = my_diis_obj
 #mf.run()
 
-time1 = time.time()
 my_diis_obj = scf.FDIIS()
-my_diis_obj.space = 20
+my_diis_obj.space = 5
 #my_diis_obj.filename = 'o2_ediis.h5'
 mf.diis = my_diis_obj
 mf.kernel()
-
-time2 = time.time()
-
-my_diis_obj2 = scf.EDIIS()
-my_diis_obj.space = mf.mol.nao_nr() * 2 + 20
-mf2.diis = my_diis_obj2
-mf2.kernel()
-
-time3 = time.time()
-
-print()
-print()
-
-print("FDIIS time: " + str(time2-time1))
-print("EDIIS time: " + str(time3-time2))
 
 #
 # By creating an DIIS object and assigning it to the attribute mf.diis, we can
