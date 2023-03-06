@@ -472,24 +472,14 @@ void CVHFset_q_cond(CVHFOpt *opt, double *q_cond, int len)
 void CVHFnr_dm_cond1(double *dm_cond, double *dm, int nset, int *ao_loc,
                      int *atm, int natm, int *bas, int nbas, double *env)
 {
-        size_t nao = ao_loc[nbas];
-        double dmax;
-        int i, j, ish, jsh;
-        int iset;
-        double *pdm;
-        for (ish = 0; ish < nbas; ish++) {
-        for (jsh = 0; jsh < nbas; jsh++) {
-                dmax = 0;
-                for (iset = 0; iset < nset; iset++) {
-                        pdm = dm + nao*nao*iset;
-                        for (i = ao_loc[ish]; i < ao_loc[ish+1]; i++) {
-                        for (j = ao_loc[jsh]; j < ao_loc[jsh+1]; j++) {
-                                dmax = MAX(dmax, fabs(pdm[i*nao+j]));
-                        } }
-                }
-                dm_cond[ish*nbas+jsh] = dmax;
-        } }
-}
+        if (opt->dm_cond != NULL) { // NOT reuse opt->dm_cond because nset may be diff in different call
+                free(opt->dm_cond);
+        }
+        // nbas in the input arguments may different to opt->nbas.
+        // Use opt->nbas because it is used in the prescreen function
+        nbas = opt->nbas;
+        opt->dm_cond = (double *)malloc(sizeof(double) * nbas*nbas);
+        NPdset0(opt->dm_cond, ((size_t)nbas)*nbas);
 
 void CVHFnr_dm_cond(double *dm_cond, double *dm, int nset, int *ao_loc,
                     int *atm, int natm, int *bas, int nbas, double *env)
@@ -512,8 +502,8 @@ void CVHFnr_dm_cond(double *dm_cond, double *dm, int nset, int *ao_loc,
                                 dmax = MAX(dmax, tmp);
                         } }
                 }
-                dm_cond[ish*nbas+jsh] = .5 * dmax;
-                dm_cond[jsh*nbas+ish] = .5 * dmax;
+                opt->dm_cond[ish*nbas+jsh] = .5 * dmax;
+                opt->dm_cond[jsh*nbas+ish] = .5 * dmax;
         } }
 }
 

@@ -1113,12 +1113,14 @@ void PBCVHFsetnr_direct_scf(int (*intor)(), CINTOpt *cintopt, int16_t *qindex,
                             int *ao_loc, int *atm, int natm,
                             int *bas, int nbas, double *env)
 {
-        PBCVHFnr_int2e_q_cond(intor, cintopt, qindex, ao_loc, atm, natm, bas, nbas, env);
-}
-
-void PBCVHFnr_sindex(int16_t *sindex, int *atm, int natm,
-                     int *bas, int nbas, double *env)
-{
+        /* This memory is released in void CVHFdel_optimizer, Don't know
+         * why valgrind raises memory leak here */
+        if (opt->q_cond != NULL) {
+                free(opt->q_cond);
+        }
+        // nbas in the input arguments may different to opt->nbas.
+        // Use opt->nbas because it is used in the prescreen function
+        nbas = opt->nbas;
         size_t Nbas = nbas;
         size_t Nbas1 = nbas + 1;
         int *exps_group_loc = malloc(sizeof(int) * Nbas1);

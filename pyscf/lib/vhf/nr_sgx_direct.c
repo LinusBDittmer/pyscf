@@ -258,6 +258,13 @@ void SGXnr_q_cond(int (*intor)(), CINTOpt *cintopt, double *q_cond,
                   int *ao_loc, int *atm, int natm,
                   int *bas, int nbas, double *env)
 {
+        if (opt->q_cond != NULL) {
+                free(opt->q_cond);
+        }
+        nbas = opt->nbas;
+        double *q_cond = (double *)malloc(sizeof(double) * nbas*nbas);
+        opt->q_cond = q_cond;
+
         int shls_slice[] = {0, nbas};
         int cache_size = GTOmax_cache_size(intor, shls_slice, 1,
                                            atm, natm, bas, nbas, env);
@@ -312,8 +319,9 @@ void SGXsetnr_direct_scf(CVHFOpt *opt, int (*intor)(), CINTOpt *cintopt,
                          int *ao_loc, int *atm, int natm,
                          int *bas, int nbas, double *env)
 {
-        if (opt->q_cond != NULL) {
-                free(opt->q_cond);
+        nbas = opt->nbas;
+        if (opt->dm_cond != NULL) {
+                free(opt->dm_cond);
         }
         nbas = opt->nbas;
         double *q_cond = (double *)malloc(sizeof(double) * nbas*nbas);

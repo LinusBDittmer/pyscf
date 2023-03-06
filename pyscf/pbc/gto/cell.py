@@ -1147,10 +1147,16 @@ class Cell(mole.MoleBase):
         # nelec method defined in Mole class raises error when the attributes .spin
         # and .nelectron are inconsistent.  In PBC, when the system has even number of
         # k-points, it is valid that .spin is odd while .nelectron is even.
-        if nalpha + nbeta != ne:
-            warnings.warn('Electron number %d and spin %d are not consistent '
-                          'in cell\n' % (ne, self.spin))
-        return nalpha, nbeta
+        # Overwriting nelec method to avoid this check.
+        @property
+        def nelec(self):
+            ne = self.nelectron
+            nalpha = (ne + self.spin) // 2
+            nbeta = nalpha - self.spin
+            if nalpha + nbeta != ne:
+                warnings.warn('Electron number %d and spin %d are not consistent '
+                              'in cell\n' % (ne, self.spin))
+            return nalpha, nbeta
 
     def __getattr__(self, key):
         '''To support accessing methods (cell.HF, cell.KKS, cell.KUCCSD, ...)

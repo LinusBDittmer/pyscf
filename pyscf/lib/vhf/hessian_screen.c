@@ -71,7 +71,23 @@ void CVHFnr_int2e_pp_q_cond(int (*intor)(), CINTOpt *cintopt, double *q_cond,
                             int *ao_loc, int *atm, int natm,
                             int *bas, int nbas, double *env)
 {
-        int nbas2 = nbas * nbas;
+        if (opt->q_cond != NULL) {
+                free(opt->q_cond);
+        }
+        nbas = opt->nbas;
+        size_t Nbas = nbas;
+        size_t Nbas2 = Nbas * Nbas;
+        // First n*n elements for derivatives, the next n*n elements for regular ERIs
+        opt->q_cond = (double *)malloc(sizeof(double) * Nbas2*2);
+
+        if (ao_loc[nbas] == CINTtot_cgto_spheric(bas, nbas)) {
+                CVHFset_int2e_q_cond(int2e_sph, NULL, opt->q_cond+Nbas2, ao_loc,
+                                     atm, natm, bas, nbas, env);
+        } else {
+                CVHFset_int2e_q_cond(int2e_cart, NULL, opt->q_cond+Nbas2, ao_loc,
+                                     atm, natm, bas, nbas, env);
+        }
+
         int shls_slice[] = {0, nbas};
         const int cache_size = GTOmax_cache_size(intor, shls_slice, 1,
                                                  atm, natm, bas, nbas, env);
@@ -239,7 +255,23 @@ void CVHFnr_int2e_pppp_q_cond(int (*intor)(), CINTOpt *cintopt, double *q_cond,
                               int *ao_loc, int *atm, int natm,
                               int *bas, int nbas, double *env)
 {
-        int nbas2 = nbas * nbas;
+        if (opt->q_cond != NULL) {
+                free(opt->q_cond);
+        }
+        nbas = opt->nbas;
+        size_t Nbas = nbas;
+        size_t Nbas2 = Nbas * Nbas;
+        // First n*n elements for derivatives, the next n*n elements for regular ERIs
+        opt->q_cond = (double *)malloc(sizeof(double) * nbas*nbas*2);
+
+        if (ao_loc[nbas] == CINTtot_cgto_spheric(bas, nbas)) {
+                CVHFset_int2e_q_cond(int2e_sph, NULL, opt->q_cond+Nbas2, ao_loc,
+                                     atm, natm, bas, nbas, env);
+        } else {
+                CVHFset_int2e_q_cond(int2e_cart, NULL, opt->q_cond+Nbas2, ao_loc,
+                                     atm, natm, bas, nbas, env);
+        }
+
         int shls_slice[] = {0, nbas};
         const int cache_size = GTOmax_cache_size(intor, shls_slice, 1,
                                                  atm, natm, bas, nbas, env);

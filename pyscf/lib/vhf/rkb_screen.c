@@ -296,6 +296,14 @@ void CVHFrkbssss_direct_scf_dm(CVHFOpt *opt, double complex *dm, int nset,
 void CVHFrkbssll_dm_cond(double *dm_cond, double complex *dm, int nset, int *ao_loc,
                          int *atm, int natm, int *bas, int nbas, double *env)
 {
+        if (opt->dm_cond != NULL) {
+                free(opt->dm_cond);
+        }
+        if (nset < 4) {
+                fprintf(stderr, "4 sets of DMs (dmll,dmss,dmsl,dmls) are "
+                        "required to set rkb prescreening\n");
+                exit(1);
+        }
         nset = nset / 4;
         int n2c = CINTtot_cgto_spinor(bas, nbas);
         size_t nbas2 = nbas * nbas;

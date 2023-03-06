@@ -250,6 +250,7 @@ def dip_moment(cell, dm, unit='Debye', verbose=logger.NOTE,
     if origin is None:
         origin = _search_dipole_gauge_origin(cell, grids, rho, log)
 
+    # Move the cell to the position around the origin.
     def shift_grids(r):
         r_frac = (r - origin).dot(b.T)
         r_frac5 = r_frac.round(5)

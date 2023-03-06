@@ -1700,6 +1700,7 @@ static void _nr3c_kk(int (*intor)(), void (*fsort)(),
     shls[0] = ish;
     shls[1] = jsh;
 
+    const double omega = fabs(env_loc[PTR_RANGE_OMEGA]);
     int Ish, Jsh, IJsh, Ksh, idij;
     Ish = refuniqshl_map[ish];
     Jsh = refuniqshl_map[jsh-nbas];
