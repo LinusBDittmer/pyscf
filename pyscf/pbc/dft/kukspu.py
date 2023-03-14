@@ -41,7 +41,7 @@ def get_veff(ks, cell=None, dm=None, dm_last=0, vhf_last=0, hermi=1,
     if kpts is None: kpts = ks.kpts
 
     # J + V_xc
-    vxc = super(ks.__class__, ks).get_veff(cell, dm, dm_last=dm_last,
+    vxc = super(ks.__class__, ks).get_veff(cell=cell, dm=dm, dm_last=dm_last,
                                            vhf_last=vhf_last, hermi=hermi, kpts=kpts,
                                            kpts_band=kpts_band)
 
@@ -133,7 +133,7 @@ class KUKSpU(kuks.KUKS):
 
     def __init__(self, cell, kpts=np.zeros((1,3)), xc='LDA,VWN',
                  exxdiv=getattr(__config__, 'pbc_scf_SCF_exxdiv', 'ewald'),
-                 U_idx=[], U_val=[], C_ao_lo='minao', minao_ref='MINAO', **kwargs):
+                 U_idx=[], U_val=[], C_ao_lo='minao', minao_ref='MINAO'):
         """
         DFT+U args:
             U_idx: can be
@@ -150,7 +150,7 @@ class KUKSpU(kuks.KUKS):
                      string, in 'minao'.
             minao_ref: reference for minao orbitals, default is 'MINAO'.
         """
-        super(self.__class__, self).__init__(cell, kpts, xc=xc, exxdiv=exxdiv, **kwargs)
+        super(self.__class__, self).__init__(cell, kpts, xc=xc, exxdiv=exxdiv)
 
         set_U(self, U_idx, U_val)
 

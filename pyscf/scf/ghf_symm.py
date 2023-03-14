@@ -148,6 +148,8 @@ class SymAdaptedGHF(ghf.GHF):
     def eig(self, h, s, symm_orb=None, irrep_id=None):
         if symm_orb is None or irrep_id is None:
             mol = self.mol
+            if not mol.symmetry:
+                return self._eigh(h, s)
             symm_orb = mol.symm_orb
             irrep_id = mol.irrep_id
 

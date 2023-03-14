@@ -553,3 +553,29 @@ def _from_rhf_init_dm(dm, breaksym=True):
 
 class HF1e(GHF):
     scf = hf._hf1e_scf
+
+
+del (PRE_ORTH_METHOD)
+
+
+if __name__ == '__main__':
+    mol = gto.Mole()
+    mol.verbose = 3
+    mol.atom = 'H 0 0 0; H 0 0 1; O .5 .6 .2'
+    mol.basis = 'ccpvdz'
+    mol.build()
+
+    mf = GHF(mol)
+    mf.kernel()
+
+    dm = mf.init_guess_by_1e(mol)
+    dm = dm + 0j
+    nao = mol.nao_nr()
+    numpy.random.seed(12)
+    dm[:nao,nao:] = numpy.random.random((nao,nao)) * .1j
+    dm[nao:,:nao] = dm[:nao,nao:].T.conj()
+    mf.kernel(dm)
+    mf.canonicalize(mf.mo_coeff, mf.mo_occ)
+    mf.analyze()
+    print(mf.spin_square())
+    print(mf.e_tot - -75.9125824421352)

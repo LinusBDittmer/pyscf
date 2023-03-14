@@ -82,29 +82,21 @@ def get_veff(ks, cell=None, dm=None, dm_last=0, vhf_last=0, hermi=1,
         n, exc, vxc = 0, 0, 0
     else:
         max_memory = ks.max_memory - lib.current_memory()[0]
-        n, exc, vxc = ni.nr_rks(cell, ks.grids, ks.xc, dm, 0, hermi,
-                                kpts, kpts_band, max_memory=max_memory)
-        logger.info(ks, 'nelec by numeric integration = %s', n)
-        if ks.nlc or ni.libxc.is_nlc(ks.xc):
-            if ni.libxc.is_nlc(ks.xc):
-                xc = ks.xc
-            else:
-                assert ni.libxc.is_nlc(ks.nlc)
-                xc = ks.nlc
-            n, enlc, vnlc = ni.nr_nlc_vxc(cell, ks.nlcgrids, xc, dm, 0, hermi, kpts,
-                                          max_memory=max_memory)
-            exc += enlc
-            vxc += vnlc
-            logger.info(ks, 'nelec with nlc grids = %s', n)
+        n, exc, vxc = ks._numint.nr_rks(cell, ks.grids, ks.xc, dm, hermi,
+                                        kpts, kpts_band, max_memory=max_memory)
+        logger.debug(ks, 'nelec by numeric integration = %s', n)
         t0 = logger.timer(ks, 'vxc', *t0)
 
     nkpts = len(kpts)
     weight = 1. / nkpts
     if not hybrid:
+        ks.with_df._j_only = False
         vj = ks.get_j(cell, dm, hermi, kpts, kpts_band)
         vxc += vj
     else:
-        omega, alpha, hyb = ni.rsh_and_hybrid_coeff(ks.xc, spin=cell.spin)
+        if getattr(ks.with_df, '_j_only', False):  # for GDF and MDF
+            logger.warn(ks, 'df.j_only cannot be used with hybrid functional')
+            ks.with_df._j_only = False
         vj, vk = ks.get_jk(cell, dm, hermi, kpts, kpts_band)
         vk *= hyb
         if omega != 0:
@@ -145,19 +137,14 @@ def energy_elec(mf, dm_kpts=None, h1e_kpts=None, vhf=None):
 
     weight = 1./len(h1e_kpts)
     e1 = weight * np.einsum('kij,kji', h1e_kpts, dm_kpts)
-    ecoul = vhf.ecoul
-    tot_e = e1 + ecoul + vhf.exc
+    tot_e = e1 + vhf.ecoul + vhf.exc
     mf.scf_summary['e1'] = e1.real
-    mf.scf_summary['coul'] = ecoul.real
+    mf.scf_summary['coul'] = vhf.ecoul.real
     mf.scf_summary['exc'] = vhf.exc.real
-    logger.debug(mf, 'E1 = %s  Ecoul = %s  Exc = %s', e1, ecoul, vhf.exc)
-    if khf.CHECK_COULOMB_IMAG and abs(ecoul.imag > mf.cell.precision*10):
-        logger.warn(mf, "Coulomb energy has imaginary part %s. "
-                    "Coulomb integrals (e-e, e-N) may not converge !",
-                    ecoul.imag)
+    logger.debug(mf, 'E1 = %s  Ecoul = %s  Exc = %s', e1, vhf.ecoul, vhf.exc)
     return tot_e.real, vhf.ecoul + vhf.exc
 
-class KRKS(rks.KohnShamDFT, khf.KRHF):
+class KRKS(khf.KRHF, rks.KohnShamDFT):
     '''RKS class adapted for PBCs with k-point sampling.
     '''
 
@@ -174,6 +161,14 @@ class KRKS(rks.KohnShamDFT, khf.KRHF):
         khf.KRHF.dump_flags(self, verbose)
         rks.KohnShamDFT.dump_flags(self, verbose)
         return self
+
+    get_veff = get_veff
+    energy_elec = energy_elec
+    get_rho = get_rho
+
+    density_fit = rks._patch_df_beckegrids(khf.KRHF.density_fit)
+    rs_density_fit = rks._patch_df_beckegrids(khf.KRHF.rs_density_fit)
+    mix_density_fit = rks._patch_df_beckegrids(khf.KRHF.mix_density_fit)
 
     def nuc_grad_method(self):
         from pyscf.pbc.grad import krks

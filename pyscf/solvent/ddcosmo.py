@@ -869,10 +869,6 @@ class ddCOSMO(lib.StreamObject):
         else:
             return ddcosmo_grad.make_grad_object(grad_method)
 
-    to_gpu = lib.to_gpu
-
-DDCOSMO = ddCOSMO
-
 class Grids(gen_grid.Grids):
     '''DFT grids without sorting grids'''
 

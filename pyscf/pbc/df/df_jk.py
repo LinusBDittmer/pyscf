@@ -28,10 +28,8 @@ import numpy
 from pyscf import lib
 from pyscf.lib import logger, zdotNN, zdotCN, zdotNC
 from pyscf.pbc import tools
-from pyscf.pbc.lib.kpts_helper import is_zero, gamma_point, member, get_kconserv_ria
-from pyscf import __config__
-
-DM2MO_PREC = getattr(__config__, 'pbc_gto_df_df_jk_dm2mo_prec', 1e-10)
+from pyscf.pbc.lib.kpts import KPoints
+from pyscf.pbc.lib.kpts_helper import is_zero, gamma_point, member
 
 def density_fit(mf, auxbasis=None, mesh=None, with_df=None):
     '''Generte density-fitting SCF object
@@ -52,6 +50,8 @@ def density_fit(mf, auxbasis=None, mesh=None, with_df=None):
         else:
             kpts = numpy.reshape(mf.kpt, (1,3))
 
+        if isinstance(kpts, KPoints):
+            kpts = kpts.kpts
         with_df = df.DF(mf.cell, kpts)
         with_df.max_memory = mf.max_memory
         with_df.stdout = mf.stdout
@@ -361,165 +361,43 @@ def get_k_kpts(mydf, dm_kpts, hermi=1, kpts=numpy.zeros((1,3)), kpts_band=None,
     Mode 3: Asymm MO-based K-build uses eqns (4,5) and eqns (4',5')
     '''
     # K_pq = ( p{k1} i{k2} | i{k2} q{k1} )
-    if skmoR is None: # input dm is not Hermitian/PSD --> build K from dm
-        log.debug2('get_k_kpts: build K from dm')
-        dmsR = numpy.asarray(dms.real, order='C')
-        dmsI = numpy.asarray(dms.imag, order='C')
-        bufR = numpy.empty((mydf.blockdim*nao**2))
-        bufI = numpy.empty((mydf.blockdim*nao**2))
-        max_memory = max(2000, mydf.max_memory-lib.current_memory()[0])
-        def make_kpt(ki, kj, swap_2e, inverse_idx=None):
-            kpti = kpts[ki]
-            kptj = kpts_band[kj]
+    bufR = numpy.empty((mydf.blockdim*nao**2))
+    bufI = numpy.empty((mydf.blockdim*nao**2))
+    max_memory = max(2000, mydf.max_memory-lib.current_memory()[0])
+    def make_kpt(ki, kj, swap_2e, inverse_idx=None):
+        kpti = kpts[ki]
+        kptj = kpts_band[kj]
 
-            tock = numpy.asarray((logger.process_clock(), logger.perf_counter()))
+        for LpqR, LpqI, sign in mydf.sr_loop((kpti,kptj), max_memory, False):
+            nrow = LpqR.shape[0]
+            pLqR = numpy.ndarray((nao,nrow,nao), buffer=bufR)
+            pLqI = numpy.ndarray((nao,nrow,nao), buffer=bufI)
+            tmpR = numpy.ndarray((nao,nrow*nao), buffer=LpqR)
+            tmpI = numpy.ndarray((nao,nrow*nao), buffer=LpqI)
+            pLqR[:] = LpqR.reshape(-1,nao,nao).transpose(1,0,2)
+            pLqI[:] = LpqI.reshape(-1,nao,nao).transpose(1,0,2)
 
-            for LpqR, LpqI, sign in mydf.sr_loop((kpti,kptj), max_memory, False):
-                nrow = LpqR.shape[0]
+            for i in range(nset):
+                zdotNN(dmsR[i,ki], dmsI[i,ki], pLqR.reshape(nao,-1),
+                       pLqI.reshape(nao,-1), 1, tmpR, tmpI)
+                zdotCN(pLqR.reshape(-1,nao).T, pLqI.reshape(-1,nao).T,
+                       tmpR.reshape(-1,nao), tmpI.reshape(-1,nao),
+                       sign, vkR[i,kj], vkI[i,kj], 1)
 
-                tick = numpy.asarray((logger.process_clock(), logger.perf_counter()))
-                tspans[6] += tick - tock
-
-                pLqR = numpy.ndarray((nao,nrow,nao), buffer=bufR)
-                pLqI = numpy.ndarray((nao,nrow,nao), buffer=bufI)
-                tmpR = numpy.ndarray((nao,nrow*nao), buffer=LpqR)
-                tmpI = numpy.ndarray((nao,nrow*nao), buffer=LpqI)
-                pLqR[:] = LpqR.reshape(-1,nao,nao).transpose(1,0,2)
-                pLqI[:] = LpqI.reshape(-1,nao,nao).transpose(1,0,2)
-
-                tock = numpy.asarray((logger.process_clock(), logger.perf_counter()))
-                tspans[0] += tock - tick
-
+            if swap_2e:
+                tmpR = tmpR.reshape(nao*nrow,nao)
+                tmpI = tmpI.reshape(nao*nrow,nao)
+                ki_tmp = ki
+                kj_tmp = kj
+                if inverse_idx:
+                    ki_tmp = inverse_idx[0]
+                    kj_tmp = inverse_idx[1]
                 for i in range(nset):
-                    zdotNN(dmsR[i,ki], dmsI[i,ki], pLqR.reshape(nao,-1),
-                           pLqI.reshape(nao,-1), 1, tmpR, tmpI)
-                    tick = numpy.asarray((logger.process_clock(), logger.perf_counter()))
-                    tspans[1] += tick - tock
-                    zdotCN(pLqR.reshape(-1,nao).T, pLqI.reshape(-1,nao).T,
-                           tmpR.reshape(-1,nao), tmpI.reshape(-1,nao),
-                           sign, vkR[i,kj], vkI[i,kj], 1)
-                    tock = numpy.asarray((logger.process_clock(), logger.perf_counter()))
-                    tspans[2] += tock - tick
-
-                if swap_2e:
-                    tmpR = tmpR.reshape(nao*nrow,nao)
-                    tmpI = tmpI.reshape(nao*nrow,nao)
-                    tick = numpy.asarray((logger.process_clock(), logger.perf_counter()))
-                    tspans[3] += tick - tock
-                    ki_tmp = ki
-                    kj_tmp = kj
-                    if inverse_idx:
-                        ki_tmp = inverse_idx[0]
-                        kj_tmp = inverse_idx[1]
-                    for i in range(nset):
-                        zdotNN(pLqR.reshape(-1,nao), pLqI.reshape(-1,nao),
-                               dmsR[i,kj_tmp], dmsI[i,kj_tmp], 1, tmpR, tmpI)
-                        tock = numpy.asarray((logger.process_clock(), logger.perf_counter()))
-                        tspans[4] += tock - tick
-                        zdotNC(tmpR.reshape(nao,-1), tmpI.reshape(nao,-1),
-                               pLqR.reshape(nao,-1).T, pLqI.reshape(nao,-1).T,
-                               sign, vkR[i,ki_tmp], vkI[i,ki_tmp], 1)
-                        tick = numpy.asarray((logger.process_clock(), logger.perf_counter()))
-                        tspans[5] += tick - tock
-
-                tock = numpy.asarray((logger.process_clock(), logger.perf_counter()))
-
-                LpqR = LpqI = pLqR = pLqI = tmpR = tmpI = None
-    elif skmo2R is None:
-        log.debug2('get_k_kpts: build K from symm mo coeff')
-        nmo = skmoR[0,0].shape[1]
-        log.debug2('get_k_kpts: rank(dm) = %d / %d', nmo, nao)
-        skmoI_mask = numpy.asarray([[abs(skmoI[i,k]).max() > cell.precision
-                                     for k in range(nkpts)] for i in range(nset)])
-        bufR = numpy.empty((mydf.blockdim*nao**2))
-        bufI = numpy.empty((mydf.blockdim*nao**2))
-        max_memory = max(2000, mydf.max_memory-lib.current_memory()[0])
-        def make_kpt(ki, kj, swap_2e, inverse_idx=None):
-            kpti = kpts[ki]
-            kptj = kpts_band[kj]
-
-            tock = numpy.asarray((logger.process_clock(), logger.perf_counter()))
-
-            for LpqR, LpqI, sign in mydf.sr_loop((kpti,kptj), max_memory, False):
-                nrow = LpqR.shape[0]
-
-                tick = numpy.asarray((logger.process_clock(), logger.perf_counter()))
-                tspans[6] += tick - tock
-
-                pLqR = numpy.ndarray((nao,nrow,nao), buffer=bufR)
-                pLqI = numpy.ndarray((nao,nrow,nao), buffer=bufI)
-                tmpR = numpy.ndarray((nmo,nrow*nao), buffer=LpqR)
-                tmpI = numpy.ndarray((nmo,nrow*nao), buffer=LpqI)
-                pLqR[:] = LpqR.reshape(-1,nao,nao).transpose(1,0,2)
-                pLqI[:] = LpqI.reshape(-1,nao,nao).transpose(1,0,2)
-
-                tock = numpy.asarray((logger.process_clock(), logger.perf_counter()))
-                tspans[0] += tock - tick
-
-                for i in range(nset):
-                    moR = skmoR[i,ki]
-                    if skmoI_mask[i,ki]:
-                        moI = skmoI[i,ki]
-                        zdotCN(moR.T, moI.T, pLqR.reshape(nao,-1), pLqI.reshape(nao,-1),
-                               1, tmpR, tmpI)
-                    else:
-                        lib.ddot(moR.T, pLqR.reshape(nao,-1), 1, tmpR)
-                        lib.ddot(moR.T, pLqI.reshape(nao,-1), 1, tmpI)
-                    tick = numpy.asarray((logger.process_clock(), logger.perf_counter()))
-                    tspans[1] += tick - tock
-                    zdotCN(tmpR.reshape(-1,nao).T, tmpI.reshape(-1,nao).T,
-                           tmpR.reshape(-1,nao), tmpI.reshape(-1,nao),
-                           sign, vkR[i,kj], vkI[i,kj], 1)
-                    tock = numpy.asarray((logger.process_clock(), logger.perf_counter()))
-                    tspans[2] += tock - tick
-
-                if swap_2e:
-                    tmpR = tmpR.reshape(nrow*nao,nmo)
-                    tmpI = tmpI.reshape(nrow*nao,nmo)
-                    tick = numpy.asarray((logger.process_clock(), logger.perf_counter()))
-                    tspans[3] += tick - tock
-                    ki_tmp = ki
-                    kj_tmp = kj
-                    if inverse_idx:
-                        ki_tmp = inverse_idx[0]
-                        kj_tmp = inverse_idx[1]
-                    for i in range(nset):
-                        moR = skmoR[i,kj_tmp]
-                        if skmoI_mask[i,kj_tmp]:
-                            moI = skmoI[i,kj_tmp]
-                            zdotNN(pLqR.reshape(-1,nao), pLqI.reshape(-1,nao), moR, moI,
-                                   1, tmpR, tmpI)
-                        else:
-                            lib.ddot(pLqR.reshape(-1,nao), moR, 1, tmpR)
-                            lib.ddot(pLqI.reshape(-1,nao), moR, 1, tmpI)
-                        tock = numpy.asarray((logger.process_clock(), logger.perf_counter()))
-                        tspans[4] += tock - tick
-                        zdotNC(tmpR.reshape(nao,-1), tmpI.reshape(nao,-1),
-                               tmpR.reshape(nao,-1).T, tmpI.reshape(nao,-1).T,
-                               sign, vkR[i,ki_tmp], vkI[i,ki_tmp], 1)
-                        tick = numpy.asarray((logger.process_clock(), logger.perf_counter()))
-                        tspans[5] += tick - tock
-
-                tock = numpy.asarray((logger.process_clock(), logger.perf_counter()))
-
-                LpqR = LpqI = pLqR = pLqI = tmpR = tmpI = None
-    else:
-        log.debug2('get_k_kpts: build K from asymm mo coeff')
-        skmo1R = skmoR
-        skmo1I = skmoI
-        nmo = skmoR[0,0].shape[1]
-        log.debug2('get_k_kpts: rank(dm) = %d / %d', nmo, nao)
-        skmoI_mask = numpy.asarray([[max(abs(skmo1I[i,k]).max(),
-                                         abs(skmo2I[i,k]).max()) > cell.precision
-                                     for k in range(nkpts)] for i in range(nset)])
-        bufR = numpy.empty((mydf.blockdim*nao**2))
-        bufI = numpy.empty((mydf.blockdim*nao**2))
-        max_memory = max(2000, mydf.max_memory-lib.current_memory()[0])
-        def make_kpt(ki, kj, swap_2e, inverse_idx=None):
-            kpti = kpts[ki]
-            kptj = kpts_band[kj]
-
-            tock = numpy.asarray((logger.process_clock(), logger.perf_counter()))
+                    zdotNN(pLqR.reshape(-1,nao), pLqI.reshape(-1,nao),
+                           dmsR[i,kj_tmp], dmsI[i,kj_tmp], 1, tmpR, tmpI)
+                    zdotNC(tmpR.reshape(nao,-1), tmpI.reshape(nao,-1),
+                           pLqR.reshape(nao,-1).T, pLqI.reshape(nao,-1).T,
+                           sign, vkR[i,ki_tmp], vkI[i,ki_tmp], 1)
 
             for LpqR, LpqI, sign in mydf.sr_loop((kpti,kptj), max_memory, False):
                 nrow = LpqR.shape[0]

@@ -724,9 +724,35 @@ def make_rdm1(mo_coeff, mo_occ, **kwargs):
 # (mo_coeff, mo_occ) to compute the potential if tags were found in the DM
 # array and modifications to DM array may be ignored.
 
+<<<<<<< HEAD
+<<<<<<< HEAD
+def make_rdm2(mo_coeff, mo_occ, **kwargs):
+    '''Two-particle density matrix in AO representation
+=======
+def make_rdm2(mo_coeff, mo_occ, **kwargs):
+    '''Two-particle density matrix in AO representation
+
+>>>>>>> upstream/master
+    Args:
+        mo_coeff : 2D ndarray
+            Orbital coefficients. Each column is one orbital.
+        mo_occ : 1D ndarray
+            Occupancy
+    Returns:
+        Two-particle density matrix, 4D ndarray
+    '''
+    dm1 = make_rdm1(mo_coeff, mo_occ, **kwargs)
+    dm2 = (numpy.einsum('ij,kl->ijkl', dm1, dm1)
+         - numpy.einsum('ij,kl->iklj', dm1, dm1)/2)
+    return dm2
+<<<<<<< HEAD
+=======
     dm = numpy.dot(mocc*mo_occ[mo_occ>0], mocc.conj().T)
     
     return dm
+>>>>>>> origin/master
+=======
+>>>>>>> upstream/master
 
 ################################################
 # for general DM

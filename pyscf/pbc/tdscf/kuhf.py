@@ -32,7 +32,14 @@ REAL_EIG_THRESHOLD = getattr(__config__, 'pbc_tdscf_uhf_TDDFT_pick_eig_threshold
 class TDA(KTDBase):
     conv_tol = getattr(__config__, 'pbc_tdscf_rhf_TDA_conv_tol', 1e-6)
 
-    def gen_vind(self, mf, kshift):
+    def __init__(self, mf):
+        from pyscf.pbc.df.df_ao2mo import warn_pbc2d_eri
+        assert (isinstance(mf, scf.khf.KSCF))
+        self.cell = mf.cell
+        uhf.TDA.__init__(self, mf)
+        warn_pbc2d_eri(mf)
+
+    def gen_vind(self, mf):
         '''Compute Ax'''
         kconserv = self.kconserv[kshift]
         mo_coeff = mf.mo_coeff

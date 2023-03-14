@@ -729,8 +729,6 @@ class KMP2(mp2.MP2):
         self._nmo = None
         self.e_hf = None
         self.e_corr = None
-        self.e_corr_ss = None
-        self.e_corr_os = None
         self.t2 = None
 
     get_nocc = get_nocc
@@ -782,8 +780,6 @@ class KMP2(mp2.MP2):
         self._finalize()
 
         return self.e_corr, self.t2
-
-    to_gpu = lib.to_gpu
 
 KRMP2 = KMP2
 

@@ -375,44 +375,6 @@ ALIAS = {
     'dyallv4z' : 'dyall-basis.dyall_v4z',
 }
 
-GTH_ALIAS = {
-    'gthaugdzvp'  : 'gth-aug-dzvp.dat',
-    'gthaugqzv2p' : 'gth-aug-qzv2p.dat',
-    'gthaugqzv3p' : 'gth-aug-qzv3p.dat',
-    'gthaugtzv2p' : 'gth-aug-tzv2p.dat',
-    'gthaugtzvp'  : 'gth-aug-tzvp.dat',
-    'gthdzv'      : 'gth-dzv.dat',
-    'gthdzvp'     : 'gth-dzvp.dat',
-    'gthqzv2p'    : 'gth-qzv2p.dat',
-    'gthqzv3p'    : 'gth-qzv3p.dat',
-    'gthszv'      : 'gth-szv.dat',
-    'gthtzv2p'    : 'gth-tzv2p.dat',
-    'gthtzvp'     : 'gth-tzvp.dat',
-    'gthccdzvp'   : 'gth-cc-dzvp.dat',
-    'gthcctzvp'   : 'gth-cc-tzvp.dat',
-    'gthccqzvp'   : 'gth-cc-qzvp.dat',
-    'gthszvmolopt'      : 'gth-szv-molopt.dat',
-    'gthdzvpmolopt'     : 'gth-dzvp-molopt.dat',
-    'gthtzvpmolopt'     : 'gth-tzvp-molopt.dat',
-    'gthtzv2pmolopt'    : 'gth-tzv2p-molopt.dat',
-    'gthszvmoloptsr'    : 'gth-szv-molopt-sr.dat',
-    'gthdzvpmoloptsr'   : 'gth-dzvp-molopt-sr.dat',
-}
-
-PP_ALIAS = {
-    'gthblyp'    : 'gth-blyp.dat'   ,
-    'gthbp'      : 'gth-bp.dat'     ,
-    'gthhcth120' : 'gth-hcth120.dat',
-    'gthhcth407' : 'gth-hcth407.dat',
-    'gtholyp'    : 'gth-olyp.dat'   ,
-    'gthlda'     : 'gth-pade.dat'   ,
-    'gthpade'    : 'gth-pade.dat'   ,
-    'gthpbe'     : 'gth-pbe.dat'    ,
-    'gthpbesol'  : 'gth-pbesol.dat' ,
-    'gthhf'      : 'gth-hf.dat'     ,
-    'gthhfrev'   : 'gth-hf-rev.dat' ,
-}
-
 def _is_pople_basis(basis):
     return (basis.startswith('631') or
             basis.startswith('321') or

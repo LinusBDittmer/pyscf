@@ -830,9 +830,56 @@ XC_D0000021 = 117
 XC_D0000012 = 118
 XC_D0000003 = 119
 
-def eval_xc(xc_code, rho, spin=0, relativity=0, deriv=1, omega=None, verbose=None):
-    r'''Interface to call xcfun library to evaluate XC functional, potential
-    and functional derivatives. Return deriviates following libxc convention.
+def _eval_xc(hyb, fn_facs, rho, spin=0, relativity=0, deriv=1, verbose=None):
+    assert (deriv < 4)
+    if spin == 0:
+        rho_u = rho_d = numpy.asarray(rho, order='C')
+    else:
+        rho_u = numpy.asarray(rho[0], order='C')
+        rho_d = numpy.asarray(rho[1], order='C')
+    assert (rho_u.dtype == numpy.double)
+    assert (rho_d.dtype == numpy.double)
+
+    if rho_u.ndim == 1:
+        rho_u = rho_u.reshape(1,-1)
+        rho_d = rho_d.reshape(1,-1)
+    ngrids = rho_u.shape[1]
+
+    fn_ids = [x[0] for x in fn_facs]
+    facs   = [x[1] for x in fn_facs]
+    if hyb[2] != 0:
+        # Current implementation does not support different omegas for
+        # different functionals
+        omega = [hyb[2]] * len(facs)
+    else:
+        omega = [0] * len(facs)
+
+    n = len(fn_ids)
+    if (n == 0 or  # xc_code = '' or xc_code = 'HF', an empty functional
+        all((is_lda(x) for x in fn_ids))):  # LDA
+        if spin == 0:
+            nvar = 1
+            xctype = 'R-LDA'
+        else:
+            nvar = 2
+            xctype = 'U-LDA'
+    elif any((is_meta_gga(x) for x in fn_ids)):
+        if spin == 0:
+            nvar = 3
+            xctype = 'R-MGGA'
+        else:
+            nvar = 7
+            xctype = 'U-MGGA'
+    else:  # GGA
+        if spin == 0:
+            nvar = 2
+            xctype = 'R-GGA'
+        else:
+            nvar = 5
+            xctype = 'U-GGA'
+    outlen = (math.factorial(nvar+deriv) //
+              (math.factorial(nvar) * math.factorial(deriv)))
+    outbuf = numpy.zeros((ngrids,outlen))
 
     See also :func:`pyscf.dft.libxc.eval_xc`
     '''

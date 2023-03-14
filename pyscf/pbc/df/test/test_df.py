@@ -26,7 +26,7 @@ from pyscf.pbc.df import gdf_builder
 pyscf.pbc.DEBUG = False
 
 def setUpModule():
-    global cell, cell1, kmdf, ccgdf, kpts
+    global cell, kmdf, ccgdf, kpts
     L = 5.
     n = 11
     cell = pgto.Cell()

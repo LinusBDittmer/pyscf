@@ -44,6 +44,44 @@ GROUP_BOUNDARY_PENALTY = 4.2
 ALIGNMENT_UNIT = 8
 NELEC_ERROR_TOL = getattr(__config__, 'dft_rks_prune_error_tol', 0.02)
 
+# ~= (L+1)**2/3
+LEBEDEV_ORDER = {
+    0  : 1   ,
+    3  : 6   ,
+    5  : 14  ,
+    7  : 26  ,
+    9  : 38  ,
+    11 : 50  ,
+    13 : 74  ,
+    15 : 86  ,
+    17 : 110 ,
+    19 : 146 ,
+    21 : 170 ,
+    23 : 194 ,
+    25 : 230 ,
+    27 : 266 ,
+    29 : 302 ,
+    31 : 350 ,
+    35 : 434 ,
+    41 : 590 ,
+    47 : 770 ,
+    53 : 974 ,
+    59 : 1202,
+    65 : 1454,
+    71 : 1730,
+    77 : 2030,
+    83 : 2354,
+    89 : 2702,
+    95 : 3074,
+    101: 3470,
+    107: 3890,
+    113: 4334,
+    119: 4802,
+    125: 5294,
+    131: 5810
+}
+LEBEDEV_NGRID = numpy.array(list(LEBEDEV_ORDER.values()))
+
 # SG0
 # S. Chien and P. Gill,  J. Comput. Chem. 27 (2006) 730-739.
 
@@ -224,6 +262,13 @@ def gen_atomic_grids(mol, atom_grid={}, radi_method=radi.gauss_chebyshev,
             logger.debug(mol, 'atom %s rad-grids = %d, ang-grids = %s',
                          symb, n_rad, angs)
 
+            ang_grids = {}
+            for n in sorted(set(angs)):
+                grid = numpy.empty((n,4))
+                libdft.MakeAngularGrid(grid.ctypes.data_as(ctypes.c_void_p),
+                                       ctypes.c_int(n))
+                ang_grids[n] = grid
+
             angs = numpy.array(angs)
             coords = []
             vol = []
@@ -346,7 +391,7 @@ def make_mask(mol, coords, relativity=0, shls_slice=None, cutoff=CUTOFF,
 
 def arg_group_grids(mol, coords, box_size=GROUP_BOX_SIZE):
     '''
-    Partition the entire space into small boxes according to the input box_size.
+    Parition the entire space into small boxes according to the input box_size.
     Group the grids against these boxes.
     '''
     atom_coords = mol.atom_coords()
@@ -456,12 +501,6 @@ class Grids(lib.StreamObject):
     alignment = ALIGNMENT_UNIT
     cutoff = CUTOFF
 
-    _keys = {
-        'atomic_radii', 'radii_adjust', 'radi_method', 'becke_scheme',
-        'prune', 'level', 'alignment', 'cutoff', 'mol', 'symmetry',
-        'atom_grid', 'non0tab', 'screen_index', 'coords', 'weights',
-    }
-
     def __init__(self, mol):
         self.mol = mol
         self.stdout = mol.stdout
@@ -477,6 +516,10 @@ class Grids(lib.StreamObject):
         self.screen_index = None
         self.coords  = None
         self.weights = None
+        self._keys = set(self.__dict__.keys()).update([
+            'atomic_radii', 'radii_adjust', 'radi_method', 'becke_scheme',
+            'prune', 'level', 'alignment', 'cutoff',
+        ])
 
     @property
     def size(self):
@@ -521,7 +564,7 @@ class Grids(lib.StreamObject):
             logger.debug(self, 'Padding %d grids', padding)
             if padding > 0:
                 self.coords = numpy.vstack(
-                    [self.coords, numpy.repeat([[1e-4]*3], padding, axis=0)])
+                    [self.coords, numpy.repeat([[1e4]*3], padding, axis=0)])
                 self.weights = numpy.hstack([self.weights, numpy.zeros(padding)])
 
         if with_non0tab:
@@ -581,13 +624,11 @@ class Grids(lib.StreamObject):
                 logger.debug(self, 'prune_by_density_: %d padding grids', padding)
                 if padding > 0:
                     self.coords = numpy.vstack(
-                        [self.coords, numpy.repeat([[1e-4]*3], padding, axis=0)])
+                        [self.coords, numpy.repeat([[1e4]*3], padding, axis=0)])
                     self.weights = numpy.hstack([self.weights, numpy.zeros(padding)])
             self.non0tab = self.make_mask(mol, self.coords)
             self.screen_index = self.non0tab
         return self
-
-    to_gpu = lib.to_gpu
 
 
 def _default_rad(nuc, level=3):

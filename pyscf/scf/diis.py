@@ -47,10 +47,13 @@ class CDIIS(lib.diis.DIIS):
         self.rollback = 0
         self.space = 8
         self.Corth = Corth
-        self.damp = 0
 
     def update(self, s, d, f, *args, **kwargs):
+<<<<<<< HEAD
         errvec = get_err_vec(s, d, f) 
+=======
+        errvec = get_err_vec(s, d, f, self.Corth)
+>>>>>>> upstream/master
         logger.debug1(self, 'diis-norm(errvec)=%g', numpy.linalg.norm(errvec))
         f_prev = kwargs.get('f_prev', None)
         if abs(self.damp) < 1e-6 or f_prev is None:
@@ -72,13 +75,13 @@ SCFDIIS = SCF_DIIS = DIIS = CDIIS
 def get_err_vec_orig(s, d, f):
     '''error vector = SDF - FDS'''
     if isinstance(f, numpy.ndarray) and f.ndim == 2:
-        sdf = reduce(lib.dot, (s,d,f))
+        sdf = reduce(numpy.dot, (s,d,f))
         errvec = (sdf.conj().T - sdf).ravel()
 
     elif isinstance(f, numpy.ndarray) and f.ndim == 3 and s.ndim == 3:
         errvec = []
         for i in range(f.shape[0]):
-            sdf = reduce(lib.dot, (s[i], d[i], f[i]))
+            sdf = reduce(numpy.dot, (s[i], d[i], f[i]))
             errvec.append((sdf.conj().T - sdf).ravel())
         errvec = numpy.hstack(errvec)
 
@@ -92,25 +95,17 @@ def get_err_vec_orig(s, d, f):
 
 def get_err_vec_orth(s, d, f, Corth):
     '''error vector in orthonormal basis = C.T.conj() (SDF - FDS) C'''
-    # Symmetry information to reduce numerical error in DIIS (issue #1524)
-    orbsym = getattr(Corth, 'orbsym', None)
-    if orbsym is not None:
-        sym_forbid = orbsym[:,None] != orbsym
-
     if isinstance(f, numpy.ndarray) and f.ndim == 2:
-        sdf = reduce(lib.dot, (Corth.conj().T, s, d, f, Corth))
-        if orbsym is not None:
-            sdf[sym_forbid] = 0
-        errvec = (sdf.conj().T - sdf).ravel()
+        sdf = reduce(numpy.dot, (s,d,f))
+        errvec = Corth.conj().T.dot(sdf.conj().T - sdf).dot(Corth).ravel()
 
     elif isinstance(f, numpy.ndarray) and f.ndim == 3 and s.ndim == 3:
         errvec = []
         for i in range(f.shape[0]):
-            sdf = reduce(lib.dot, (Corth[i].conj().T, s[i], d[i], f[i], Corth[i]))
-            if orbsym is not None:
-                sdf[sym_forbid] = 0
-            errvec.append((sdf.conj().T - sdf).ravel())
-        errvec = numpy.hstack(errvec)
+            sdf = reduce(numpy.dot, (s[i], d[i], f[i]))
+            errvec.append(
+                Corth[i].conj().T.dot(sdf.conj().T - sdf).dot(Corth[i]).ravel())
+        errvec = numpy.vstack(errvec).ravel()
 
     elif f.ndim == s.ndim+1 and f.shape[0] == 2:  # for UHF
         errvec = numpy.hstack([

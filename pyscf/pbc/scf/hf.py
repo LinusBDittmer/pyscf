@@ -250,7 +250,6 @@ def dip_moment(cell, dm, unit='Debye', verbose=logger.NOTE,
     if origin is None:
         origin = _search_dipole_gauge_origin(cell, grids, rho, log)
 
-    # Move the cell to the position around the origin.
     def shift_grids(r):
         r_frac = (r - origin).dot(b.T)
         r_frac5 = r_frac.round(5)
@@ -754,6 +753,8 @@ class SCF(mol_hf.SCF):
                    **kwargs):
         if cell is None:
             cell = self.cell
+        if dm is None:
+            dm = self.make_rdm1()
         rho = kwargs.pop('rho', None)
         if rho is None:
             rho = self.get_rho(dm)
@@ -867,8 +868,14 @@ class SCF(mol_hf.SCF):
                 df_method = J if 'DF' in J else K
                 self.with_df = getattr(df, df_method)(self.cell, self.kpts)
 
-        if 'RS' in J or 'RS' in K:
-            self.rsjk = RangeSeparatedJKBuilder(self.cell, self.kpts)
+        # For nuclear attraction
+        if ('RS' in J or 'RS' in K) and not self.with_df:
+            self.with_df = df.GDF(self.cell, self.kpt)
+
+        if J == 'RS' or K == 'RS':
+            if not gamma_point(self.kpt):
+                raise NotImplementedError('Single k-point must be gamma point')
+            self.rsjk = RangeSeparatedJKBuilder(self.cell, self.kpt)
             self.rsjk.verbose = self.verbose
 
         # For nuclear attraction

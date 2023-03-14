@@ -517,8 +517,6 @@ class MP2(lib.StreamObject):
         self._nmo = None
         self.e_hf = None
         self.e_corr = None
-        self.e_corr_ss = None
-        self.e_corr_os = None
         self.t2 = None
 
     @property
@@ -575,11 +573,6 @@ class MP2(lib.StreamObject):
     @property
     def e_tot(self):
         return self.e_hf + self.e_corr
-
-    @property
-    def e_tot_scs(self):
-        # J. Chem. Phys. 118, 9095 (2003)
-        return self.e_hf + self.emp2_scs
 
     def kernel(self, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2):
         '''

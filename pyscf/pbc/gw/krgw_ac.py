@@ -642,3 +642,69 @@ class KRGWAC(lib.StreamObject):
         logger.warn(self, 'GW QP energies may not be sorted from min to max')
         logger.timer(self, 'GW', *cput0)
         return self.mo_energy
+
+if __name__ == '__main__':
+    from pyscf.pbc import gto
+    from pyscf.pbc.lib import chkfile
+    import os
+    # This test takes a few minutes
+    cell = gto.Cell()
+    cell.build(unit = 'angstrom',
+               a = '''
+               0.000000     1.783500     1.783500
+               1.783500     0.000000     1.783500
+               1.783500     1.783500     0.000000
+               ''',
+               atom = 'C 1.337625 1.337625 1.337625; C 2.229375 2.229375 2.229375',
+               dimension = 3,
+               max_memory = 8000,
+               verbose = 4,
+               pseudo = 'gth-pade',
+               basis='gth-szv',
+               precision=1e-10)
+
+    kpts = cell.make_kpts([3,1,1],scaled_center=[0,0,0])
+    gdf = df.GDF(cell, kpts)
+    gdf_fname = 'gdf_ints_311.h5'
+    gdf._cderi_to_save = gdf_fname
+    if not os.path.isfile(gdf_fname):
+        gdf.build()
+
+    chkfname = 'diamond_311.chk'
+    if os.path.isfile(chkfname):
+        kmf = dft.KRKS(cell, kpts)
+        kmf.xc = 'pbe'
+        kmf.with_df = gdf
+        kmf.with_df._cderi = gdf_fname
+        data = chkfile.load(chkfname, 'scf')
+        kmf.__dict__.update(data)
+    else:
+        kmf = dft.KRKS(cell, kpts)
+        kmf.xc = 'pbe'
+        kmf.with_df = gdf
+        kmf.with_df._cderi = gdf_fname
+        kmf.conv_tol = 1e-12
+        kmf.chkfile = chkfname
+        kmf.kernel()
+
+    gw = KRGWAC(kmf)
+    gw.linearized = False
+    gw.ac = 'pade'
+    # without finite size corrections
+    gw.fc = False
+    nocc = gw.nocc
+    gw.kernel(kptlist=[0,1,2],orbs=range(0,nocc+3))
+    print(gw.mo_energy)
+    assert ((abs(gw.mo_energy[0][nocc-1]-0.62045797))<1e-5)
+    assert ((abs(gw.mo_energy[0][nocc]-0.96574324))<1e-5)
+    assert ((abs(gw.mo_energy[1][nocc-1]-0.52639137))<1e-5)
+    assert ((abs(gw.mo_energy[1][nocc]-1.07513258))<1e-5)
+
+    # with finite size corrections
+    gw.fc = True
+    gw.kernel(kptlist=[0,1,2],orbs=range(0,nocc+3))
+    print(gw.mo_energy)
+    assert ((abs(gw.mo_energy[0][nocc-1]-0.54277092))<1e-5)
+    assert ((abs(gw.mo_energy[0][nocc]-0.80148537))<1e-5)
+    assert ((abs(gw.mo_energy[1][nocc-1]-0.45073793))<1e-5)
+    assert ((abs(gw.mo_energy[1][nocc]-0.92910108))<1e-5)

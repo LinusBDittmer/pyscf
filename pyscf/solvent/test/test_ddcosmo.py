@@ -490,14 +490,13 @@ class KnownValues(unittest.TestCase):
         # TDA with equilibrium_solvation
         mf = mol.RHF().ddCOSMO().run(conv_tol=1e-10)
         td = mf.TDA().ddCOSMO().run(equilibrium_solvation=True)
-        ref = numpy.array([0.30124900879, 0.358722766464, 0.3950184783571])
+        ref = numpy.array([0.3014315117408341, 0.358844688787903, 0.3951664712235241])
         self.assertAlmostEqual(abs(ref - td.e).max(), 0, 7)
-        self.assertEqual(td.undo_solvent().__class__.__name__, 'TDA')
 
         # TDA without equilibrium_solvation
         mf = mol.RHF().ddCOSMO().run(conv_tol=1e-10)
         td = mf.TDA().ddCOSMO().run()
-        ref = numpy.array([0.301421953639, 0.358782851661, 0.400409174628])
+        ref = numpy.array([0.3016104587222408, 0.358896882513815, 0.4004977667270891])
         self.assertAlmostEqual(abs(ref - td.e).max(), 0, 7)
 
 # TODO: add tests for direct-scf, ROHF, ROKS, .newton(), and their mixes

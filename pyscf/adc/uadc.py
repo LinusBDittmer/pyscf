@@ -177,6 +177,14 @@ class UADC(lib.StreamObject):
         self.X = (None,)
         self.ncvs = None
 
+        keys = set(('tol_residual','conv_tol', 'e_corr', 'method',
+                    'method_type', 'mo_coeff', 'mol', 'mo_energy_b',
+                    'max_memory', 'scf_energy', 'e_tot', 't1', 'frozen',
+                    'mo_energy_a', 'chkfile', 'max_space', 't2', 'mo_occ',
+                    'max_cycle'))
+
+        self._keys = set(self.__dict__.keys()).union(keys)
+
     compute_amplitudes = uadc_amplitudes.compute_amplitudes
     compute_energy = uadc_amplitudes.compute_energy
     transform_integrals = uadc_ao2mo.transform_integrals_incore

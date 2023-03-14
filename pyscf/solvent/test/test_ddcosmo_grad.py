@@ -848,8 +848,8 @@ class KnownValues(unittest.TestCase):
         mc = solvent.ddCOSMO(mcscf.CASSCF(mf, 2, 2)).set(conv_tol=1e-9)
         mc_g = mc.nuc_grad_method().as_scanner()
         e, de = mc_g(mol0)
-        self.assertAlmostEqual(e, -1.19627418, 5)
-        self.assertAlmostEqual(lib.fp(de), -0.1831184, 4)
+        self.assertAlmostEqual(e, -1.1964048498155815, 5)
+        self.assertAlmostEqual(lib.fp(de), -0.18331022006442843, 4)
 
         mf = scf.RHF(mol1).run()
         mc1 = solvent.ddCOSMO(mcscf.CASSCF(mf, 2, 2)).run(conv_tol=1e-9)

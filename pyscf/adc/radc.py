@@ -172,6 +172,13 @@ class RADC(lib.StreamObject):
         self.P = None
         self.X = None
 
+        keys = set(('tol_residual','conv_tol', 'e_corr', 'method', 'mo_coeff',
+                    'mol', 'mo_energy', 'max_memory', 'incore_complete',
+                    'scf_energy', 'e_tot', 't1', 'frozen', 'chkfile',
+                    'max_space', 't2', 'mo_occ', 'max_cycle'))
+
+        self._keys = set(self.__dict__.keys()).union(keys)
+
     compute_amplitudes = radc_amplitudes.compute_amplitudes
     compute_energy = radc_amplitudes.compute_energy
     transform_integrals = radc_ao2mo.transform_integrals_incore

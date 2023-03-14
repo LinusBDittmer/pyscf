@@ -67,8 +67,8 @@ class KnownValues(unittest.TestCase):
         mf.with_df = df.AFTDF(cell)
         mf.kpts = cell.make_kpts([2,1,1])
         mf.kernel()
-        self.assertAlmostEqual(lib.fp(mf.get_bands(kband[0])[0]), 1.968506055533682, 4)
-        self.assertAlmostEqual(lib.fp(mf.get_bands(kband)[0]), 1.0538585525613609, 4)
+        self.assertAlmostEqual(lib.fp(mf.get_bands(kband[0])[0]), 1.968506055533682, 7)
+        self.assertAlmostEqual(lib.fp(mf.get_bands(kband)[0]), 1.0538585525613609, 7)
 
     def test_df_bands(self):
         mf = scf.KRHF(cell)

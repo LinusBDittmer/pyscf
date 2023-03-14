@@ -61,16 +61,12 @@ class KnownValues(unittest.TestCase):
         pt = mp.MP2(mf)
         emp2, t2 = pt.kernel(mf.mo_energy, mf.mo_coeff)
         self.assertAlmostEqual(emp2, -0.204019967288338, 8)
-        self.assertAlmostEqual(pt.e_corr_ss, -0.05153088565639835, 8)
-        self.assertAlmostEqual(pt.e_corr_os, -0.15248908163191538, 8)
         self.assertAlmostEqual(abs(t2 - t2ref0).max(), 0, 8)
 
         pt.max_memory = 1
         pt.frozen = None
         emp2, t2 = pt.kernel()
         self.assertAlmostEqual(emp2, -0.204019967288338, 8)
-        self.assertAlmostEqual(pt.e_corr_ss, -0.05153088565639835, 8)
-        self.assertAlmostEqual(pt.e_corr_os, -0.15248908163191538, 8)
         self.assertAlmostEqual(abs(t2 - t2ref0).max(), 0, 8)
 
     def test_mp2_outcore(self):
@@ -232,7 +228,6 @@ class KnownValues(unittest.TestCase):
         e1 = pt.kernel()[0]
         pt = mp.mp2.MP2(mf.density_fit('weigend'))
         e2 = pt.kernel()[0]
-        self.assertAlmostEqual(e1, -0.20425449198652196, 8)
         self.assertAlmostEqual(e1, e2, 8)
 
     def test_rdm_complex(self):

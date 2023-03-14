@@ -40,67 +40,15 @@ REAL_EIG_THRESHOLD = getattr(__config__, 'pbc_tdscf_rhf_TDDFT_pick_eig_threshold
 class KTDBase(TDBase):
     _keys = {'kconserv', 'kshift_lst'}
 
-    def __init__(self, mf, kshift_lst=None):
-        assert isinstance(mf, scf.khf.KSCF)
-        TDBase.__init__(self, mf)
+    def __init__(self, mf):
+        from pyscf.pbc import scf
+        assert (isinstance(mf, scf.khf.KSCF))
+        self.cell = mf.cell
+        rhf.TDA.__init__(self, mf)
+        from pyscf.pbc.df.df_ao2mo import warn_pbc2d_eri
         warn_pbc2d_eri(mf)
 
-        if kshift_lst is None: kshift_lst = [0]
-
-        self.kconserv = get_kconserv_ria(mf.cell, mf.kpts)
-        self.kshift_lst = kshift_lst
-
-    def dump_flags(self, verbose=None):
-        log = logger.new_logger(self, verbose)
-        log.info('\n')
-        log.info('******** %s for %s ********',
-                 self.__class__, self._scf.__class__)
-        if self.singlet is None:
-            log.info('nstates = %d', self.nstates)
-        elif self.singlet:
-            log.info('nstates = %d singlet', self.nstates)
-        else:
-            log.info('nstates = %d triplet', self.nstates)
-        log.info('deg_eia_thresh = %.3e', self.deg_eia_thresh)
-        log.info('kshift_lst = %s', self.kshift_lst)
-        log.info('wfnsym = %s', self.wfnsym)
-        log.info('conv_tol = %g', self.conv_tol)
-        log.info('eigh lindep = %g', self.lindep)
-        log.info('eigh level_shift = %g', self.level_shift)
-        log.info('eigh max_space = %d', self.max_space)
-        log.info('eigh max_cycle = %d', self.max_cycle)
-        log.info('chkfile = %s', self.chkfile)
-        log.info('max_memory %d MB (current use %d MB)',
-                 self.max_memory, lib.current_memory()[0])
-        if not self._scf.converged:
-            log.warn('Ground state SCF is not converged')
-        log.info('\n')
-
-    def check_sanity(self):
-        TDBase.check_sanity(self)
-        mf = self._scf
-        if any([k != 0 for k in self.kshift_lst]):
-            if mf.rsjk is not None or not isinstance(mf.with_df, pbcdf.df.DF):
-                logger.error(self, 'Solutions with non-zero kshift for %s are '
-                             'only supported by GDF/RSDF')
-                raise NotImplementedError
-
-    def _finalize(self):
-        '''Hook for dumping results and clearing up the object.'''
-        for k,kshift in enumerate(self.kshift_lst):
-            if not all(self.converged[k]):
-                logger.note(self, 'kshift = %d  TD-SCF states %s not converged.',
-                            kshift, [i for i, x in enumerate(self.converged[k]) if not x])
-            logger.note(self, 'kshift = %d  Excited State energies (eV)\n%s',
-                        kshift, self.e[k] * nist.HARTREE2EV)
-        return self
-
-    get_nto = lib.invalid_method('get_nto')
-
-class TDA(KTDBase):
-    conv_tol = getattr(__config__, 'pbc_tdscf_rhf_TDA_conv_tol', 1e-6)
-
-    def gen_vind(self, mf, kshift):
+    def gen_vind(self, mf):
         # exxdiv corrections are kept in hdiag while excluding them when calling
         # the contractions between two-electron integrals and X/Y amplitudes.
         # See also the relevant comments in function pbc.tdscf.rhf.TDA.gen_vind

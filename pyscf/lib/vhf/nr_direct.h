@@ -23,8 +23,6 @@
 
 #define NOVALUE 0xffffffff
 
-#define NOVALUE 0x7fffffff
-
 #if !defined(HAVE_DEFINED_INTORENV_H)
 #define HAVE_DEFINED_INTORENV_H
 typedef struct {
@@ -79,8 +77,7 @@ void CVHFnr_direct_drv(int (*intor)(), void (*fdot)(), JKOperator **jkop,
                        CINTOpt *cintopt, CVHFOpt *vhfopt,
                        int *atm, int natm, int *bas, int nbas, double *env);
 
-JKArray *CVHFallocate_JKArray(JKOperator *op, int *shls_slice, int *ao_loc,
-                              int ncomp, int nblock, int size_limit);
+JKArray *CVHFallocate_JKArray(JKOperator *op, int *shls_slice, int *ao_loc, int ncomp);
 void CVHFdeallocate_JKArray(JKArray *jkarray);
 double *CVHFallocate_and_reorder_dm(JKOperator *op, double *dm,
                                     int *shls_slice, int *ao_loc);

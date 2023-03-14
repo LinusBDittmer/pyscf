@@ -180,7 +180,7 @@ class with_omp_threads:
         if self.sys_threads is not None:
             num_threads(self.sys_threads)
 
-class with_multiproc_nproc:
+class with_multiproc_nproc(object):
     '''
     Using this macro to create a temporary context in which the number of
     multi-processing processes are set to the required value.
@@ -344,16 +344,6 @@ def prange_split(n_total, n_sections):
     div_points = numpy.array(section_sizes).cumsum()
     return zip(div_points[:-1], div_points[1:])
 
-izip = zip
-
-if sys.version_info > (3, 8):
-    from math import comb
-else:
-    import math
-    def comb(n, k):
-        if k < 0 or k > n:
-            return 0
-        return math.factorial(n) // math.factorial(n-k) // math.factorial(k)
 
 def map_with_prefetch(func, *iterables):
     '''
@@ -769,12 +759,6 @@ def module_method(fn, absences=None):
             if a is None: a = self.a
             if b is None: b = self.b
             return fn(a, b)
-
-    This function can be used to replace "staticmethod" when inserting a module
-    method into a class. In a child class, it allows one to call the method of a
-    base class with either "self.__class__.method_name(self, args)" or
-    "self.super().method_name(args)". For method created with "staticmethod",
-    calling "self.super().method_name(args)" is the only option.
     '''
     _locals = {}
     name = fn.__name__
@@ -841,32 +825,23 @@ def invalid_method(name):
     fn.__name__ = name
     return fn
 
-@functools.lru_cache(None)
-def _define_class(name, bases):
-    return type(name, bases, {})
-
-def make_class(bases, name=None, attrs=None):
-    '''
-    Construct a class
-
-    class {name}(*bases):
-        __dict__ = attrs
-    '''
-    if name is None:
-        name = ''.join(getattr(x, '__name_mixin__', x.__name__) for x in bases)
-
-    cls = _define_class(name, bases)
-    cls.__name_mixin__ = name
-    if attrs is not None:
-        for key, val in attrs.items():
-            setattr(cls, key, val)
-    return cls
-
-def set_class(obj, bases, name=None, attrs=None):
-    '''Change the class of an object'''
-    cls = make_class(bases, name, attrs)
-    cls.__module__ = obj.__class__.__module__
-    obj.__class__ = cls
+def overwrite_mro(obj, mro):
+    '''A hacky function to overwrite the __mro__ attribute'''
+    class HackMRO(type):
+        pass
+# Overwrite type.mro function so that Temp class can use the given mro
+    HackMRO.mro = lambda self: mro
+    #if sys.version_info < (3,):
+    #    class Temp(obj.__class__):
+    #        __metaclass__ = HackMRO
+    #else:
+    #    class Temp(obj.__class__, metaclass=HackMRO):
+    #        pass
+    Temp = HackMRO(obj.__class__.__name__, obj.__class__.__bases__, obj.__dict__)
+    obj = Temp()
+# Delete mro function otherwise all subclass of Temp are not able to
+# resolve the right mro
+    del (HackMRO.mro)
     return obj
 
 def drop_class(cls, base_cls, name_mixin=None):
@@ -1359,76 +1334,3 @@ def isintsequence(obj):
         for i in obj:
             are_ints = are_ints and isinteger(i)
         return are_ints
-
-class _OmniObject:
-    '''Class with default attributes. When accessing an attribute that is not
-    initialized, a default value will be returned than raising an AttributeError.
-    '''
-    verbose = 0
-    max_memory = param.MAX_MEMORY
-    stdout = sys.stdout
-
-    def __init__(self, default_factory=None):
-        self._default = default_factory
-
-    def __getattr__(self, key):
-        return self._default
-
-# Many methods requires a mol or mf object in initialization.
-# These objects can be as the default arguments for these methods.
-# Then class can be instantiated easily like cls(omniobj) in the following
-# to_gpu function.
-omniobj = _OmniObject()
-omniobj._built = True
-omniobj.mol = omniobj
-omniobj._scf = omniobj
-omniobj.base = omniobj
-
-def to_gpu(method, out=None):
-    '''Convert a method to its corresponding GPU variant, and recursively
-    converts all attributes of a method to cupy objects or gpu4pyscf objects.
-    '''
-    import cupy
-    from pyscf import gto
-
-    # If a GPU class inherits a CPU code, the "to_gpu" method may be resolved
-    # and available in the GPU class. Skip the conversion in this case.
-    if method.__module__.startswith('gpu4pyscf'):
-        return method
-
-    if out is None:
-        try:
-            import gpu4pyscf
-        except ImportError:
-            print('Library gpu4pyscf not found. You can install this package via\n'
-                  '    pip install gpu4pyscf-cuda11x\n'
-                  'See more installation info at https://github.com/pyscf/gpu4pyscf')
-            raise
-
-        # TODO: Is it necessary to implement scanner in gpu4pyscf?
-        if isinstance(method, (SinglePointScanner, GradScanner)):
-            method = method.undo_scanner()
-
-        from importlib import import_module
-        mod = import_module(method.__module__.replace('pyscf', 'gpu4pyscf'))
-        cls = getattr(mod, method.__class__.__name__)
-        # A temporary GPU instance. This ensures to initialize private
-        # attributes that are only available for GPU code.
-        out = cls(omniobj)
-
-    # Convert only the keys that are defined in the corresponding GPU class
-    cls_keys = [getattr(cls, '_keys', ()) for cls in out.__class__.__mro__[:-1]]
-    out_keys = set(out.__dict__).union(*cls_keys)
-    # Only overwrite the attributes of the same name.
-    keys = set(method.__dict__).intersection(out_keys)
-
-    for key in keys:
-        val = getattr(method, key)
-        if isinstance(val, numpy.ndarray):
-            val = cupy.asarray(val)
-        elif hasattr(val, 'to_gpu'):
-            val = val.to_gpu()
-        setattr(out, key, val)
-    out.reset()
-    return out
-

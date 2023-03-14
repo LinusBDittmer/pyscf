@@ -66,26 +66,43 @@ O          0.00000        0.00000        0.11779
 H          0.00000        0.75545       -0.47116
 H          0.00000       -0.75545       -0.47116
 '''
-a = np.eye(3) * 20  # big box to match isolated molecule
-basis = 'sto-3g'
-auxbasis = 'weigend'
-cell = gto.M(atom=atom, basis=basis, a=a).set(verbose=3)
-mol = cell.to_mol()
+cell.basis = 'gth-szv'
+cell.pseudo = 'gth-pade'
+cell.build()
+mf = scf.KRHF(cell, cell.make_kpts([2,2,2]))
+mf.run()
 
-log = lib.logger.new_logger(cell)
+td = tdscf.KTDA(mf)
+td.nstates = 5
+td.verbose = 5
+print(td.kernel()[0] * 27.2114)
 
-xc = 'b3lyp'
-# pbc
-mf = scf.RKS(cell).set(xc=xc).rs_density_fit(auxbasis=auxbasis).run()
-pbctda = mf.TDA().run()
-pbctd = mf.TDDFT().run()
-# mol
-molmf =  molscf.RKS(cell).set(xc=xc).density_fit(auxbasis=auxbasis).run()
-moltda = molmf.TDA().run()
-moltd = molmf.TDDFT().run()
+td = tdscf.KTDDFT(mf)
+td.nstates = 5
+td.verbose = 5
+print(td.kernel()[0] * 27.2114)
 
-_format = lambda e: ' '.join([f'{x*27.2114:.3f}' for x in e])
-log.note('PBC TDA  : %s', _format(pbctda.e))
-log.note('Mol TDA  : %s', _format(moltda.e))
-log.note('PBC TDDFT: %s', _format(pbctd.e))
-log.note('Mol TDDFT: %s', _format(moltd.e))
+mf = scf.RHF(cell)
+mf.kernel()
+td = tdscf.TDA(mf)
+td.kernel()
+
+#
+# Gamma-point RKS
+#
+ks = scf.RKS(cell)
+ks.run()
+
+td = tdscf.KTDDFT(ks)
+td.nstates = 5
+td.verbose = 5
+print(td.kernel()[0] * 27.2114)
+print(td.oscillator_strength())
+
+
+# TODO:
+#kpt = cell.get_abs_kpts([0.25, 0.25, 0.25])
+#mf = scf.RHF(cell, kpt=kpt)
+#mf.kernel()
+#td = tdscf.TDA(mf)
+#td.kernel()

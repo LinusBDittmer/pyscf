@@ -517,6 +517,11 @@ class RCCSD(pyscf.cc.ccsd.CCSD):
         ##################################################
         # don't modify the following attributes, unless you know what you are doing
         self.keep_exxdiv = False
+
+        keys = set(['kpts', 'khelper', 'ip_partition',
+                    'ea_partition', 'max_space', 'direct',
+                    'keep_exxdiv'])
+        self._keys = self._keys.union(keys)
         self.__imds__ = None
 
     @property

@@ -785,6 +785,7 @@ def set_frozen(mycc, method='auto', window=(-1000.0, 1000.0), is_gcc=False):
         mycc.frozen = frozen
     return mycc
 
+
 def as_scanner(cc):
     '''Generating a scanner/solver for CCSD PES.
 
@@ -970,6 +971,7 @@ class CCSDBase(lib.StreamObject):
         self._nocc = None
         self._nmo = None
         self.chkfile = mf.chkfile
+        self.callback = None
 
     @property
     def ecc(self):
@@ -1137,7 +1139,14 @@ class CCSDBase(lib.StreamObject):
     def make_rdm1(self, t1=None, t2=None, l1=None, l2=None, ao_repr=False,
                   with_frozen=True, with_mf=True):
         '''Un-relaxed 1-particle density matrix in MO space'''
-        raise NotImplementedError
+        from pyscf.cc import ccsd_rdm
+        if t1 is None: t1 = self.t1
+        if t2 is None: t2 = self.t2
+        if l1 is None: l1 = self.l1
+        if l2 is None: l2 = self.l2
+        if l1 is None: l1, l2 = self.solve_lambda(t1, t2)
+        return ccsd_rdm.make_rdm1(self, t1, t2, l1, l2, ao_repr=ao_repr,
+                                  with_frozen=with_frozen, with_mf=with_mf)
 
     def make_rdm2(self, t1=None, t2=None, l1=None, l2=None, ao_repr=False,
                   with_frozen=True, with_dm1=True):
@@ -1146,7 +1155,14 @@ class CCSDBase(lib.StreamObject):
 
         dm2[p,r,q,s] = <p^+ q^+ s r>
         '''
-        raise NotImplementedError
+        from pyscf.cc import ccsd_rdm
+        if t1 is None: t1 = self.t1
+        if t2 is None: t2 = self.t2
+        if l1 is None: l1 = self.l1
+        if l2 is None: l2 = self.l2
+        if l1 is None: l1, l2 = self.solve_lambda(t1, t2)
+        return ccsd_rdm.make_rdm2(self, t1, t2, l1, l2, ao_repr=ao_repr,
+                                  with_frozen=with_frozen, with_dm1=with_dm1)
 
     def ao2mo(self, mo_coeff=None):
         # Pseudo code how eris are implemented:

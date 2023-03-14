@@ -60,7 +60,28 @@ def get_ovlp(mf, cell=None, kpts=None):
     '''
     if cell is None: cell = mf.cell
     if kpts is None: kpts = mf.kpts
-    return pbchf.get_ovlp(cell, kpts)
+    # Avoid pbcopt's prescreening in the lattice sum, for better accuracy
+    s = cell.pbc_intor('int1e_ovlp', hermi=0, kpts=kpts,
+                       pbcopt=lib.c_null_ptr())
+    s = lib.asarray(s)
+    hermi_error = abs(s - s.conj().transpose(0,2,1)).max()
+    if hermi_error > cell.precision and hermi_error > 1e-12:
+        logger.warn(mf, '%.4g error found in overlap integrals. '
+                    'cell.precision  or  cell.rcut  can be adjusted to '
+                    'improve accuracy.', hermi_error)
+
+    cond = np.max(lib.cond(s))
+    if cond * cell.precision > 1e2:
+        prec = 1e2 / cond
+        rmin = max([cell.bas_rcut(ib, prec) for ib in range(cell.nbas)])
+        if cell.rcut < rmin:
+            logger.warn(mf, 'Singularity detected in overlap matrix.  '
+                        'Integral accuracy may be not enough.\n      '
+                        'You can adjust  cell.precision  or  cell.rcut  to '
+                        'improve accuracy.  Recommended values are\n      '
+                        'cell.precision = %.2g  or smaller.\n      '
+                        'cell.rcut = %.4g  or larger.', prec, rmin)
+    return s
 
 
 def get_hcore(mf, cell=None, kpts=None):
@@ -456,6 +477,20 @@ class KSCF(pbchf.SCF):
         self.conv_tol = max(cell.precision * 10, 1e-8)
 
         self.exx_built = False
+        self._keys = self._keys.union(['cell', 'exx_built', 'exxdiv', 'with_df', 'rsjk'])
+
+    @property
+    def kpts(self):
+        if 'kpts' in self.__dict__:
+            # To handle the attribute kpt loaded from chkfile
+            self.kpt = self.__dict__.pop('kpts')
+        return self.with_df.kpts
+
+    @kpts.setter
+    def kpts(self, x):
+        self.with_df.kpts = np.reshape(x, (-1,3))
+        if self.rsjk:
+            self.rsjk.kpts = self.with_df.kpts
 
     @property
     def mo_energy_kpts(self):
@@ -650,6 +685,49 @@ class KSCF(pbchf.SCF):
         from pyscf.pbc.df import mdf_jk
         return mdf_jk.density_fit(self, auxbasis, with_df=with_df)
 
+    def jk_method(self, J='FFTDF', K=None):
+        '''
+        Set up the schemes to evaluate Coulomb and exchange matrix
+
+        FFTDF: planewave density fitting using Fast Fourier Transform
+        AFTDF: planewave density fitting using analytic Fourier Transform
+        GDF: Gaussian density fitting
+        MDF: Gaussian and planewave mix density fitting
+        RS: range-separation JK builder
+        RSDF: range-separation density fitting
+        '''
+        if K is None:
+            K = J
+
+        if J != K:
+            raise NotImplementedError('J != K')
+
+        if 'DF' in J or 'DF' in K:
+            if 'DF' in J and 'DF' in K:
+                assert J == K
+            else:
+                df_method = J if 'DF' in J else K
+                self.with_df = getattr(df, df_method)(self.cell, self.kpts)
+
+        if 'RS' in J or 'RS' in K:
+            self.rsjk = RangeSeparatedJKBuilder(self.cell, self.kpts)
+            self.rsjk.verbose = self.verbose
+
+        # For nuclear attraction
+        if J == 'RS' and K == 'RS' and not isinstance(self.with_df, df.GDF):
+            self.with_df = df.GDF(self.cell, self.kpts)
+
+        nuc = self.with_df.__class__.__name__
+        logger.debug1(self, 'Apply %s for J, %s for K, %s for nuc', J, K, nuc)
+        return self
+
+    def stability(self,
+                  internal=getattr(__config__, 'pbc_scf_KSCF_stability_internal', True),
+                  external=getattr(__config__, 'pbc_scf_KSCF_stability_external', False),
+                  verbose=None):
+        from pyscf.pbc.scf.stability import rhf_stability
+        return rhf_stability(self, internal, external, verbose)
+
     def newton(self):
         from pyscf.pbc.scf import newton_ah
         return newton_ah.newton(self)
@@ -659,17 +737,20 @@ class KSCF(pbchf.SCF):
         return sfx2c1e.sfx2c1e(self)
     x2c = x2c1e = sfx2c1e
 
-    def to_rhf(self):
+    def to_rhf(self, mf=None):
         '''Convert the input mean-field object to a KRHF/KROHF/KRKS/KROKS object'''
-        return addons.convert_to_rhf(self)
+        return addons.convert_to_rhf(self, mf)
 
-    def to_uhf(self):
+    def to_uhf(self, mf=None):
         '''Convert the input mean-field object to a KUHF/KUKS object'''
-        return addons.convert_to_uhf(self)
+        return addons.convert_to_uhf(self, mf)
 
-    def to_ghf(self):
+    def to_ghf(self, mf=None):
         '''Convert the input mean-field object to a KGHF/KGKS object'''
-        return addons.convert_to_ghf(self)
+        return addons.convert_to_ghf(self, mf)
+
+    def to_khf(self):
+        return self
 
     def to_kscf(self):
         '''Convert to k-point SCF object
@@ -738,12 +819,7 @@ class KRHF(KSCF):
         from pyscf.pbc.grad import krhf
         return krhf.Gradients(self)
 
-    def stability(self,
-                  internal=getattr(__config__, 'pbc_scf_KSCF_stability_internal', True),
-                  external=getattr(__config__, 'pbc_scf_KSCF_stability_external', False),
-                  verbose=None):
-        from pyscf.pbc.scf.stability import rhf_stability
-        return rhf_stability(self, internal, external, verbose)
+del (WITH_META_LOWDIN, PRE_ORTH_METHOD)
 
     def to_ks(self, xc='HF'):
         '''Convert to RKS object.

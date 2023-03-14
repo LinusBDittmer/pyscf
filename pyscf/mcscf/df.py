@@ -75,11 +75,86 @@ def density_fit(casscf, auxbasis=None, with_df=None):
             casscf.with_df = with_df
         return casscf
 
-    if isinstance(casscf, CASCI):
-        cls = _DFCASCI
-    else:
-        cls = _DFCASSCF
-    return lib.set_class(cls(casscf, with_df), (cls, casscf.__class__))
+    class DFCASSCF(_DFCASSCF, casscf_class):
+        def __init__(self):
+            self.__dict__.update(casscf.__dict__)
+            #self.grad_update_dep = 0
+            self.with_df = with_df
+            self._keys = self._keys.union(['with_df'])
+
+        def dump_flags(self, verbose=None):
+            casscf_class.dump_flags(self, verbose)
+            logger.info(self, 'DFCASCI/DFCASSCF: density fitting for JK matrix '
+                        'and 2e integral transformation')
+            return self
+
+        def reset(self, mol=None):
+            self.with_df.reset(mol)
+            return casscf_class.reset(self, mol)
+
+        def ao2mo(self, mo_coeff=None):
+            if self.with_df and 'CASSCF' in casscf_class.__name__:
+                return _ERIS(self, mo_coeff, self.with_df)
+            else:
+                return casscf_class.ao2mo(self, mo_coeff)
+
+        def get_h2eff(self, mo_coeff=None):  # For CASCI
+            if self.with_df:
+                ncore = self.ncore
+                nocc = ncore + self.ncas
+                if mo_coeff is None:
+                    mo_coeff = self.mo_coeff[:,ncore:nocc]
+                elif mo_coeff.shape[1] != self.ncas:
+                    mo_coeff = mo_coeff[:,ncore:nocc]
+                return self.with_df.ao2mo(mo_coeff)
+            else:
+                return casscf_class.get_h2eff(self, mo_coeff)
+
+# Modify get_veff for JK matrix of core density because get_h1eff calls
+# self.get_veff to generate core JK
+        def get_veff(self, mol=None, dm=None, hermi=1):
+            if dm is None:
+                mocore = self.mo_coeff[:,:self.ncore]
+                dm = numpy.dot(mocore, mocore.T) * 2
+            vj, vk = self.get_jk(mol, dm, hermi)
+            return vj - vk * .5
+
+# only approximate jk for self.update_jk_in_ah
+        @lib.with_doc(casscf_class.get_jk.__doc__)
+        def get_jk(self, mol, dm, hermi=1, with_j=True, with_k=True, omega=None):
+            if self.with_df:
+                return self.with_df.get_jk(dm, hermi,
+                                           with_j=with_j, with_k=with_k, omega=omega)
+            else:
+                return casscf_class.get_jk(self, mol, dm, hermi,
+                                           with_j=with_j, with_k=with_k, omega=omega)
+
+        def _exact_paaa(self, mo, u, out=None):
+            if self.with_df:
+                nmo = mo.shape[1]
+                ncore = self.ncore
+                ncas = self.ncas
+                nocc = ncore + ncas
+                mo1 = numpy.dot(mo, u)
+                mo1_cas = mo1[:,ncore:nocc]
+                paaa = self.with_df.ao2mo([mo1, mo1_cas, mo1_cas, mo1_cas], compact=False)
+                return paaa.reshape(nmo,ncas,ncas,ncas)
+            else:
+                return casscf_class._exact_paaa(self, mol, u, out)
+
+        def nuc_grad_method(self):
+            if 'CASCI' in str (casscf_class):
+                raise NotImplementedError ("DFCASCI nuclear gradients")
+            from pyscf.df.grad import casscf
+            return casscf.Gradients (self)
+
+        def _state_average_nuc_grad_method (self, state=None):
+            if 'CASCI' in str (casscf_class):
+                raise NotImplementedError ("DFCASCI nuclear gradients")
+            from pyscf.df.grad import sacasscf
+            return sacasscf.Gradients (self, state=state)
+
+    return DFCASSCF()
 
 # A tag to label the derived MCSCF class
 class _DFCAS:

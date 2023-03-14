@@ -15,9 +15,8 @@
 add_library(dft SHARED
   CxLebedevGrid.c grid_basis.c nr_numint.c r_numint.c
   numint_uniform_grid.c xc_deriv.c nr_numint_sparse.c
-  multigrid.c grid_common.c grid_collocate.c grid_integrate.c utils.c
-)
-add_dependencies(dft cgto cvhf np_helper pbc)
+  )
+add_dependencies(dft cgto cvhf np_helper)
 
 set_target_properties(dft PROPERTIES
   LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR})

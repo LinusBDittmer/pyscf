@@ -50,7 +50,7 @@ def gen_tda_operation(mf, fock_ao=None, singlet=True, wfnsym=None):
     '''
     mol = mf.mol
     mo_coeff = mf.mo_coeff
-    # assert (mo_coeff.dtype == numpy.double)
+    assert (mo_coeff.dtype == numpy.double)
     mo_energy = mf.mo_energy
     mo_occ = mf.mo_occ
     nao, nmo = mo_coeff.shape
@@ -115,7 +115,7 @@ def get_ab(mf, mo_energy=None, mo_coeff=None, mo_occ=None):
     if mo_energy is None: mo_energy = mf.mo_energy
     if mo_coeff is None: mo_coeff = mf.mo_coeff
     if mo_occ is None: mo_occ = mf.mo_occ
-    # assert (mo_coeff.dtype == numpy.double)
+    assert (mo_coeff.dtype == numpy.double)
 
     mol = mf.mol
     nao, nmo = mo_coeff.shape
@@ -882,7 +882,7 @@ def gen_tdhf_operation(mf, fock_ao=None, singlet=True, wfnsym=None):
     '''
     mol = mf.mol
     mo_coeff = mf.mo_coeff
-    # assert (mo_coeff.dtype == numpy.double)
+    assert (mo_coeff.dtype == numpy.double)
     mo_energy = mf.mo_energy
     mo_occ = mf.mo_occ
     nao, nmo = mo_coeff.shape

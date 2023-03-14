@@ -74,16 +74,6 @@ IMAG_TOL = 1e-9
 def eval_mat(cell, weights, shls_slice=None, comp=1, hermi=0,
              xctype='LDA', kpts=None, mesh=None, offset=None, submesh=None):
     assert (all(cell._bas[:,NPRIM_OF] == 1))
-    if mesh is None:
-        mesh = cell.mesh
-    vol = cell.vol
-    weight_penalty = numpy.prod(mesh) / vol
-    exp_min = numpy.hstack(cell.bas_exps()).min()
-    theta_ij = exp_min / 2
-    lattice_sum_fac = max(2*numpy.pi*cell.rcut/(vol*theta_ij), 1)
-    precision = cell.precision / weight_penalty / lattice_sum_fac
-    if xctype != 'LDA':
-        precision *= .1
     atm, bas, env = gto.conc_env(cell._atm, cell._bas, cell._env,
                                  cell._atm, cell._bas, cell._env)
     env[PTR_EXPDROP] = min(precision*EXTRA_PREC, EXPDROP)
@@ -201,16 +191,6 @@ def eval_rho(cell, dm, shls_slice=None, hermi=0, xctype='LDA', kpts=None,
             The output density is assumed to be real if ignore_imag=True.
     '''
     assert (all(cell._bas[:,NPRIM_OF] == 1))
-    if mesh is None:
-        mesh = cell.mesh
-    vol = cell.vol
-    weight_penalty = numpy.prod(mesh) / vol
-    exp_min = numpy.hstack(cell.bas_exps()).min()
-    theta_ij = exp_min / 2
-    lattice_sum_fac = max(2*numpy.pi*cell.rcut/(vol*theta_ij), 1)
-    precision = cell.precision / weight_penalty / lattice_sum_fac
-    if xctype != 'LDA':
-        precision *= .1
     atm, bas, env = gto.conc_env(cell._atm, cell._bas, cell._env,
                                  cell._atm, cell._bas, cell._env)
     env[PTR_EXPDROP] = min(precision*EXTRA_PREC, EXPDROP)
@@ -1913,3 +1893,92 @@ multigrid = multigrid_fftdf # for backward compatibility
 
 def _pgto_shells(cell):
     return cell._bas[:,NPRIM_OF].sum()
+
+def _take_4d(a, indices):
+    a_shape = a.shape
+    ranges = []
+    for i, s in enumerate(indices):
+        if s is None:
+            idx = numpy.arange(a_shape[i], dtype=numpy.int32)
+        else:
+            idx = numpy.asarray(s, dtype=numpy.int32)
+            idx[idx < 0] += a_shape[i]
+        ranges.append(idx)
+    idx = ranges[0][:,None] * a_shape[1] + ranges[1]
+    idy = ranges[2][:,None] * a_shape[3] + ranges[3]
+    a = a.reshape(a_shape[0]*a_shape[1], a_shape[2]*a_shape[3])
+    out = lib.take_2d(a, idx.ravel(), idy.ravel())
+    return out.reshape([len(s) for s in ranges])
+
+def _takebak_4d(out, a, indices):
+    out_shape = out.shape
+    a_shape = a.shape
+    ranges = []
+    for i, s in enumerate(indices):
+        if s is None:
+            idx = numpy.arange(a_shape[i], dtype=numpy.int32)
+        else:
+            idx = numpy.asarray(s, dtype=numpy.int32)
+            idx[idx < 0] += out_shape[i]
+        assert (len(idx) == a_shape[i])
+        ranges.append(idx)
+    idx = ranges[0][:,None] * out_shape[1] + ranges[1]
+    idy = ranges[2][:,None] * out_shape[3] + ranges[3]
+    nx = idx.size
+    ny = idy.size
+    out = out.reshape(out_shape[0]*out_shape[1], out_shape[2]*out_shape[3])
+    lib.takebak_2d(out, a.reshape(nx,ny), idx.ravel(), idy.ravel())
+    return out
+
+def _take_5d(a, indices):
+    a_shape = a.shape
+    a = a.reshape((a_shape[0]*a_shape[1],) + a_shape[2:])
+    indices = (None,) + indices[2:]
+    return _take_4d(a, indices)
+
+def _takebak_5d(out, a, indices):
+    a_shape = a.shape
+    out_shape = out.shape
+    a = a.reshape((a_shape[0]*a_shape[1],) + a_shape[2:])
+    out = out.reshape((out_shape[0]*out_shape[1],) + out_shape[2:])
+    indices = (None,) + indices[2:]
+    return _takebak_4d(out, a, indices)
+
+
+if __name__ == '__main__':
+    from pyscf.pbc import dft
+    numpy.random.seed(22)
+    cell = gto.M(
+        a = numpy.eye(3)*3.5668,
+        atom = '''C     0.      0.      0.
+                  C     0.8917  0.8917  0.8917
+                  C     1.7834  1.7834  0.
+                  C     2.6751  2.6751  0.8917
+                  C     1.7834  0.      1.7834
+                  C     2.6751  0.8917  2.6751
+                  C     0.      1.7834  1.7834
+                  C     0.8917  2.6751  2.6751''',
+        #basis = 'sto3g',
+        #basis = 'ccpvdz',
+        basis = 'gth-dzvp',
+        #basis = 'gth-szv',
+        #verbose = 5,
+        #mesh = [15]*3,
+        #precision=1e-6
+        pseudo = 'gth-pade'
+    )
+    multi_grids_tasks(cell, cell.mesh, 5)
+
+    nao = cell.nao_nr()
+    numpy.random.seed(1)
+    kpts = cell.make_kpts([3,1,1])
+
+    dm = numpy.random.random((len(kpts),nao,nao)) * .2
+    dm += numpy.eye(nao)
+    dm = dm + dm.transpose(0,2,1)
+
+    mf = dft.KRKS(cell)
+    ref = mf.get_veff(cell, dm, kpts=kpts)
+    out = multigrid(mf).get_veff(cell, dm, kpts=kpts)
+    print(abs(ref-out).max())
+

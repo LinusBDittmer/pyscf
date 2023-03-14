@@ -25,7 +25,7 @@ from pyscf import lib
 from pyscf.lib import logger
 from pyscf.lib.parameters import BOHR
 from pyscf import gto as mol_gto
-from pyscf.pbc.df.rsdf_builder import _round_off_to_odd_mesh
+from pyscf.pbc.df.gdf_builder import _round_off_to_odd_mesh
 from pyscf.pbc.df.incore import libpbc, make_auxcell
 from pyscf.pbc.lib.kpts_helper import is_zero, gamma_point, unique, KPT_DIFF_TOL
 from pyscf.pbc.tools import pbc as pbctools
@@ -401,8 +401,8 @@ def _get_schwartz_data(bas_lst, omega, dijs_lst=None, keep1ctr=True, safe=True):
     if keep1ctr:
         bas_lst = get1ctr(bas_lst)
     if dijs_lst is None:
-        mol = MoleNoBasSort()
-        mol.build(dump_input=False, parse_arg=False, atom="H 0 0 0", basis=bas_lst, spin=None)
+        mol = mol_gto.Mole()
+        mol.build(False, False, atom="H 0 0 0", basis=bas_lst, spin=None)
         nbas = mol.nbas
         intor = "int2c2e"
         Qs = np.zeros(nbas)
@@ -416,8 +416,8 @@ def _get_schwartz_data(bas_lst, omega, dijs_lst=None, keep1ctr=True, safe=True):
             return _get_norm(
                         _fintor_sreri(mol, intor, shls_slice, omega, safe)
                     )**0.5
-        mol = MoleNoBasSort()
-        mol.build(dump_input=False, parse_arg=False, atom="H 0 0 0", basis=bas_lst, spin=None)
+        mol = mol_gto.Mole()
+        mol.build(False, False, atom="H 0 0 0; H 0 0 0", basis=bas_lst, spin=None)
         nbas = mol.nbas//2
         n2 = nbas*(nbas+1)//2
         if len(dijs_lst) != n2:
@@ -444,8 +444,8 @@ def _get_schwartz_dcut(bas_lst, omega, precision, r0=None, safe=True):
     Return:
         1d array of length nbas*(nbas+1)//2 with nbas=len(bas_lst).
     """
-    mol = MoleNoBasSort()
-    mol.build(dump_input=False, parse_arg=False, atom="H 0 0 0; H 0 0 0", basis=bas_lst)
+    mol = mol_gto.Mole()
+    mol.build(False, False, atom="H 0 0 0; H 0 0 0", basis=bas_lst)
     nbas = len(bas_lst)
     n2 = nbas*(nbas+1)//2
 
@@ -680,15 +680,15 @@ def _get_3c2e_Rcuts(bas_lst_or_mol, auxbas_lst_or_auxmol, dijs_lst, omega,
         mol = bas_lst_or_mol
     else:
         bas_lst = bas_lst_or_mol
-        mol = MoleNoBasSort()
-        mol.build(dump_input=False, parse_arg=False, atom="H 0 0 0", basis=bas_lst, spin=None)
+        mol = mol_gto.Mole()
+        mol.build(False, False, atom="H 0 0 0", basis=bas_lst, spin=None)
 
     if isinstance(auxbas_lst_or_auxmol, mol_gto.mole.MoleBase):
         auxmol = auxbas_lst_or_auxmol
     else:
         auxbas_lst = auxbas_lst_or_auxmol
-        auxmol = MoleNoBasSort()
-        auxmol.build(dump_input=False, parse_arg=False, atom="H 0 0 0", basis=auxbas_lst, spin=None)
+        auxmol = mol_gto.Mole()
+        auxmol.build(False, False, atom="H 0 0 0", basis=auxbas_lst, spin=None)
 
     nbas = mol.nbas
 

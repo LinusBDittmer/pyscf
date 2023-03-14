@@ -121,6 +121,14 @@ class ROHF(pbchf.RHF):
         '''
         raise NotImplementedError
 
+    dip_moment = pbchf.SCF.dip_moment
+
+    def get_init_guess(self, cell=None, key='minao'):
+        if cell is None: cell = self.cell
+        dm = mol_rohf.ROHF.get_init_guess(self, cell, key)
+        dm = pbchf.normalize_dm_(self, dm)
+        return dm
+
     def init_guess_by_1e(self, cell=None):
         if cell is None: cell = self.cell
         if cell.dimension < 3:

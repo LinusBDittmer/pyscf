@@ -427,9 +427,8 @@ def _gen_jk(hessobj, mo_coeff, mo_occ, chkfile=None, atmlst=None,
         for i, (shl0, shl1, q0, q1) in enumerate(aoslices):
             wj1 = np.einsum('xijp,ji->xp', int3c_ip1[:,q0:q1], dm0[:,q0:q1])
             vj1_buf[i] += np.einsum('xp,pij->xij', wj1, coef3c)
-        if with_k:
-            rhok0_PlJ = lib.einsum('plj,Jj->plJ', rhok0_Pl_[p0:p1], mocc_2)
-            vk1_buf += lib.einsum('xijp,plj->xil', int3c_ip1, rhok0_PlJ)
+        rhok0_PlJ = lib.einsum('plj,Jj->plJ', rhok0_Pl_[p0:p1], mocc_2)
+        vk1_buf += lib.einsum('xijp,plj->xil', int3c_ip1, rhok0_PlJ)
         int3c_ip1 = None
     vj1_buf = ftmp['vj1_buf'] = vj1_buf
 

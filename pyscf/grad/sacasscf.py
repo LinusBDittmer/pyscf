@@ -511,7 +511,8 @@ class Gradients (lagrange.Gradients):
         # Spin penalty method is inapplicable to response calc'ns
         # It must be deactivated for Lagrange multipliers to converge
         if isinstance (fcasscf.fcisolver, SpinPenaltyFCISolver):
-            fcasscf.fcisolver = fcasscf.fcisolver.undo_fix_spin()
+            fcasscf.fcisolver = copy.copy (fcasscf.fcisolver)
+            fcasscf.fcisolver.ss_penalty = 0
         fcasscf.__dict__.update (casscf_attr)
         fcasscf.nelecas = nelecas
         fcasscf.fcisolver.__dict__.update (fcisolver_attr)
@@ -541,7 +542,8 @@ class Gradients (lagrange.Gradients):
         fcasscf.__dict__.update (self.base.__dict__)
         if isinstance (self.base, StateAverageMCSCFSolver):
             if isinstance (self.base.fcisolver, StateAverageMixFCISolver):
-                fcisolvers = [f.copy() for f in self.base.fcisolver.fcisolvers]
+                fcisolvers = [copy.copy (f) for f in
+                              self.base.fcisolver.fcisolvers]
                 # Spin penalty method is inapplicable to response calc'ns
                 # It must be deactivated for Lagrange multipliers to converge
                 for i in range (len (fcisolvers)):
@@ -554,7 +556,7 @@ class Gradients (lagrange.Gradients):
         # Spin penalty method is inapplicable to response calc'ns
         # It must be deactivated for Lagrange multipliers to converge
         if isinstance (fcasscf.fcisolver, SpinPenaltyFCISolver):
-            fcasscf.fcisolver = fcasscf.fcisolver.copy()
+            fcasscf.fcisolver = copy.copy (fcasscf.fcisolver)
             fcasscf.fcisolver.ss_penalty = 0
         fcasscf.__dict__.update (casscf_attr)
         fcasscf.fcisolver.__dict__.update (fcisolver_attr)

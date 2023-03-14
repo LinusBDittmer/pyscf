@@ -93,7 +93,7 @@ def get_veff(ks_grad, mol=None, dm=None):
         vxc += vj[0] + vj[1] - vk
         if ks_grad.auxbasis_response:
             e1_aux = vj.aux.sum ((0,1))
-            e1_aux -= numpy.trace (vk.aux, axis1=0, axis2=1)
+            e1_aux -= numpy.trace (vk_aux, axis1=0, axis2=1)
 
     if ks_grad.auxbasis_response:
         logger.debug1(ks_grad, 'sum(auxbasis response) %s', e1_aux.sum(axis=0))

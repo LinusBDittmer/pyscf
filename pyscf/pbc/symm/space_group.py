@@ -250,10 +250,8 @@ class SPGElement():
 class SpaceGroup(lib.StreamObject):
     '''
     Determines the space group of a lattice.
-
     Attributes:
         cell : :class:`Cell` object
-
         symprec : float
             Numerical tolerance for determining the space group.
             Default value is 1e-6 in the unit of length.

@@ -18,7 +18,6 @@
 
 #include <stdlib.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <assert.h>
 #include <math.h>
 //#include <omp.h>
@@ -30,16 +29,13 @@
 #include "np_helper/np_helper.h"
 #include "pbc/pbc.h"
 
-#define INDEX_MIN       -10000
-
 void PBCminimal_CINTEnvVars(CINTEnvVars *envs, int *atm, int natm, int *bas, int nbas, double *env,
                             CINTOpt *cintopt);
 
 void PBCVHF_contract_k_s1(int (*intor)(), double *vk, double *dms, double *buf,
-                          int *cell0_shls, int *bvk_cells,
-                          int *dm_translation, int n_dm, int16_t *dmindex,
-                          float *rij_cond, float *rkl_cond,
-                          CINTEnvVars *envs_cint, BVKEnvs *envs_bvk)
+                          int *cell0_shls, int *bvk_cells, int *cell0_ao_loc,
+                          int *dm_translation, int n_dm,
+                          CVHFOpt *vhfopt, CINTEnvVars *envs_cint, BVKEnvs *envs_bvk)
 {
         int bvk_ncells = envs_bvk->ncells;
         int nbands = envs_bvk->nbands;
@@ -54,17 +50,15 @@ void PBCVHF_contract_k_s1(int (*intor)(), double *vk, double *dms, double *buf,
         int dm_jk_off = dm_translation[cell_j * bvk_ncells + cell_k];
         size_t Nbasp = nbasp;
         size_t nn0 = nbasp * nbasp;
-        int cutoff = envs_bvk->cutoff;
-        int dmidx_jk = dmindex[dm_jk_off*nn0 + jsh_cell0*Nbasp+ksh_cell0];
-        if (dmidx_jk < cutoff) {
+        double direct_scf_cutoff = envs_bvk->cutoff;
+        double dm_jk_cond = vhfopt->dm_cond[dm_jk_off*nn0 + jsh_cell0*Nbasp+ksh_cell0];
+        if (dm_jk_cond < direct_scf_cutoff) {
                 return;
         }
-        if (!(*intor)(buf, cell0_shls, bvk_cells, cutoff-dmidx_jk,
-                      rij_cond, rkl_cond, envs_cint, envs_bvk)) {
+        if (!(*intor)(buf, cell0_shls, bvk_cells, direct_scf_cutoff, envs_cint, envs_bvk)) {
                 return;
         }
 
-        int *cell0_ao_loc = envs_bvk->ao_loc;
         size_t naop = cell0_ao_loc[nbasp];
         size_t nn = naop * naop;
         size_t bn = naop * nbands;
@@ -100,10 +94,9 @@ void PBCVHF_contract_k_s1(int (*intor)(), double *vk, double *dms, double *buf,
 }
 
 static void contract_k_s2_kgtl(int (*intor)(), double *vk, double *dms, double *buf,
-                               int *cell0_shls, int *bvk_cells,
-                               int *dm_translation, int n_dm, int16_t *dmindex,
-                               float *rij_cond, float *rkl_cond,
-                               CINTEnvVars *envs_cint, BVKEnvs *envs_bvk)
+                               int *cell0_shls, int *bvk_cells, int *cell0_ao_loc,
+                               int *dm_translation, int n_dm,
+                               CVHFOpt *vhfopt, CINTEnvVars *envs_cint, BVKEnvs *envs_bvk)
 {
         int bvk_ncells = envs_bvk->ncells;
         int nbands = envs_bvk->nbands;
@@ -119,19 +112,17 @@ static void contract_k_s2_kgtl(int (*intor)(), double *vk, double *dms, double *
         int dm_jl_off = dm_translation[cell_j*bvk_ncells+cell_l];
         size_t Nbasp = nbasp;
         size_t nn0 = Nbasp * Nbasp;
-        int cutoff = envs_bvk->cutoff;
-        int dmidx_jk = dmindex[dm_jk_off*nn0 + jsh_cell0*Nbasp+ksh_cell0];
-        int dmidx_jl = dmindex[dm_jl_off*nn0 + jsh_cell0*Nbasp+lsh_cell0];
-        int dmidx_max = MAX(dmidx_jk, dmidx_jl);
-        if (dmidx_max < cutoff) {
+        double direct_scf_cutoff = envs_bvk->cutoff;
+        double dm_jk_cond = vhfopt->dm_cond[dm_jk_off*nn0 + jsh_cell0*Nbasp+ksh_cell0];
+        double dm_jl_cond = vhfopt->dm_cond[dm_jl_off*nn0 + jsh_cell0*Nbasp+lsh_cell0];
+        double dm_cond_max = MAX(dm_jk_cond, dm_jl_cond);
+        if (dm_cond_max < direct_scf_cutoff) {
                 return;
         }
-        if (!(*intor)(buf, cell0_shls, bvk_cells, cutoff-dmidx_max,
-                      rij_cond, rkl_cond, envs_cint, envs_bvk)) {
+        if (!(*intor)(buf, cell0_shls, bvk_cells, direct_scf_cutoff, envs_cint, envs_bvk)) {
                 return;
         }
 
-        int *cell0_ao_loc = envs_bvk->ao_loc;
         size_t naop = cell0_ao_loc[nbasp];
         size_t nn = naop * naop;
         size_t bn = naop * nbands;
@@ -172,37 +163,28 @@ static void contract_k_s2_kgtl(int (*intor)(), double *vk, double *dms, double *
 }
 
 void PBCVHF_contract_k_s2kl(int (*intor)(), double *vk, double *dms, double *buf,
-                            int *cell0_shls, int *bvk_cells,
-                            int *dm_translation, int n_dm, int16_t *dmindex,
-                            float *rij_cond, float *rkl_cond,
-                            CINTEnvVars *envs_cint, BVKEnvs *envs_bvk)
+                            int *cell0_shls, int *bvk_cells, int *cell0_ao_loc,
+                            int *dm_translation, int n_dm,
+                            CVHFOpt *vhfopt, CINTEnvVars *envs_cint, BVKEnvs *envs_bvk)
 {
         int nbasp = envs_bvk->nbasp;
         int ksh = cell0_shls[2] + bvk_cells[2] * nbasp;
         int lsh = cell0_shls[3] + bvk_cells[3] * nbasp;
         if (ksh > lsh) {
                 contract_k_s2_kgtl(intor, vk, dms, buf, cell0_shls, bvk_cells,
-                                   dm_translation, n_dm, dmindex,
-                                   rij_cond, rkl_cond, envs_cint, envs_bvk);
+                                   cell0_ao_loc, dm_translation, n_dm,
+                                   vhfopt, envs_cint, envs_bvk);
         } else if (ksh == lsh) {
                 PBCVHF_contract_k_s1(intor, vk, dms, buf, cell0_shls, bvk_cells,
-                                     dm_translation, n_dm, dmindex,
-                                     rij_cond, rkl_cond, envs_cint, envs_bvk);
+                                     cell0_ao_loc, dm_translation, n_dm,
+                                     vhfopt, envs_cint, envs_bvk);
         }
 }
 
-//dist[lsh-lsh0] += xij[lsh0] * xkl[lsh0] + yij[lsh0] * ykl[lsh0] + zij[lsh0] * zkl[lsh0];
-//
-//fac = (theta_ij+theta_kl)*dist[lsh] + log(prec) - log(s_ij[jsh]) - log(s_kl[kl])
-//
-//if (log(dm_ij) > fac || log(dm_kl) > fac ||
-//    (log(dm_ik) > fac || log(dm_il) > fac || log(dm_jk) > fac || log(dm_jl) > fac):
-//        continue
 void PBCVHF_contract_j_s1(int (*intor)(), double *vj, double *dms, double *buf,
-                          int *cell0_shls, int *bvk_cells,
-                          int *dm_translation, int n_dm, int16_t *dmindex,
-                          float *rij_cond, float *rkl_cond,
-                          CINTEnvVars *envs_cint, BVKEnvs *envs_bvk)
+                          int *cell0_shls, int *bvk_cells, int *cell0_ao_loc,
+                          int *dm_translation, int n_dm,
+                          CVHFOpt *vhfopt, CINTEnvVars *envs_cint, BVKEnvs *envs_bvk)
 {
         int bvk_ncells = envs_bvk->ncells;
         int nbands = envs_bvk->nbands;
@@ -217,17 +199,15 @@ void PBCVHF_contract_j_s1(int (*intor)(), double *vj, double *dms, double *buf,
         int dm_lk_off = dm_translation[cell_l * bvk_ncells + cell_k];
         size_t Nbasp = nbasp;
         size_t nn0 = Nbasp * Nbasp;
-        int cutoff = envs_bvk->cutoff;
-        int dmidx_lk = dmindex[dm_lk_off*nn0 + lsh_cell0*Nbasp+ksh_cell0];
-        if (dmidx_lk < cutoff) {
+        double direct_scf_cutoff = envs_bvk->cutoff;
+        double dm_lk_cond = vhfopt->dm_cond[dm_lk_off*nn0 + lsh_cell0*Nbasp+ksh_cell0];
+        if (dm_lk_cond < direct_scf_cutoff) {
                 return;
         }
-        if (!(*intor)(buf, cell0_shls, bvk_cells, cutoff-dmidx_lk,
-                      rij_cond, rkl_cond, envs_cint, envs_bvk)) {
+        if (!(*intor)(buf, cell0_shls, bvk_cells, direct_scf_cutoff, envs_cint, envs_bvk)) {
                 return;
         }
 
-        int *cell0_ao_loc = envs_bvk->ao_loc;
         size_t naop = cell0_ao_loc[nbasp];
         size_t nn = naop * naop;
         size_t bn = naop * nbands;
@@ -263,10 +243,9 @@ void PBCVHF_contract_j_s1(int (*intor)(), double *vj, double *dms, double *buf,
 }
 
 static void contract_j_s2_kgtl(int (*intor)(), double *vj, double *dms, double *buf,
-                               int *cell0_shls, int *bvk_cells,
-                               int *dm_translation, int n_dm, int16_t *dmindex,
-                               float *rij_cond, float *rkl_cond,
-                               CINTEnvVars *envs_cint, BVKEnvs *envs_bvk)
+                               int *cell0_shls, int *bvk_cells, int *cell0_ao_loc,
+                               int *dm_translation, int n_dm,
+                               CVHFOpt *vhfopt, CINTEnvVars *envs_cint, BVKEnvs *envs_bvk)
 {
         int bvk_ncells = envs_bvk->ncells;
         int nbands = envs_bvk->nbands;
@@ -282,19 +261,17 @@ static void contract_j_s2_kgtl(int (*intor)(), double *vj, double *dms, double *
         int dm_kl_off = dm_translation[cell_k * bvk_ncells + cell_l];
         size_t Nbasp = nbasp;
         size_t nn0 = Nbasp * Nbasp;
-        int cutoff = envs_bvk->cutoff;
-        int dmidx_lk = dmindex[dm_lk_off*nn0 + lsh_cell0*Nbasp+ksh_cell0];
-        int dmidx_kl = dmindex[dm_kl_off*nn0 + ksh_cell0*Nbasp+lsh_cell0];
-        int dmidx_max = MAX(dmidx_lk, dmidx_kl);
-        if (dmidx_max < cutoff) {
+        double direct_scf_cutoff = envs_bvk->cutoff;
+        double dm_lk_cond = vhfopt->dm_cond[dm_lk_off*nn0 + lsh_cell0*Nbasp+ksh_cell0];
+        double dm_kl_cond = vhfopt->dm_cond[dm_kl_off*nn0 + ksh_cell0*Nbasp+lsh_cell0];
+        double dm_cond_max = dm_lk_cond + dm_kl_cond;
+        if (dm_cond_max < direct_scf_cutoff) {
                 return;
         }
-        if (!(*intor)(buf, cell0_shls, bvk_cells, cutoff-dmidx_max,
-                      rij_cond, rkl_cond, envs_cint, envs_bvk)) {
+        if (!(*intor)(buf, cell0_shls, bvk_cells, direct_scf_cutoff, envs_cint, envs_bvk)) {
                 return;
         }
 
-        int *cell0_ao_loc = envs_bvk->ao_loc;
         size_t naop = cell0_ao_loc[nbasp];
         size_t nn = naop * naop;
         size_t bn = naop * nbands;
@@ -331,30 +308,28 @@ static void contract_j_s2_kgtl(int (*intor)(), double *vj, double *dms, double *
 }
 
 void PBCVHF_contract_j_s2kl(int (*intor)(), double *vj, double *dms, double *buf,
-                            int *cell0_shls, int *bvk_cells,
-                            int *dm_translation, int n_dm, int16_t *dmindex,
-                            float *rij_cond, float *rkl_cond,
-                            CINTEnvVars *envs_cint, BVKEnvs *envs_bvk)
+                            int *cell0_shls, int *bvk_cells, int *cell0_ao_loc,
+                            int *dm_translation, int n_dm,
+                            CVHFOpt *vhfopt, CINTEnvVars *envs_cint, BVKEnvs *envs_bvk)
 {
         int nbasp = envs_bvk->nbasp;
         int ksh = cell0_shls[2] + bvk_cells[2] * nbasp;
         int lsh = cell0_shls[3] + bvk_cells[3] * nbasp;
         if (ksh > lsh) {
                 contract_j_s2_kgtl(intor, vj, dms, buf, cell0_shls, bvk_cells,
-                                   dm_translation, n_dm, dmindex,
-                                   rij_cond, rkl_cond, envs_cint, envs_bvk);
+                                   cell0_ao_loc, dm_translation, n_dm,
+                                   vhfopt, envs_cint, envs_bvk);
         } else if (ksh == lsh) {
                 PBCVHF_contract_j_s1(intor, vj, dms, buf, cell0_shls, bvk_cells,
-                                     dm_translation, n_dm, dmindex,
-                                     rij_cond, rkl_cond, envs_cint, envs_bvk);
+                                     cell0_ao_loc, dm_translation, n_dm,
+                                     vhfopt, envs_cint, envs_bvk);
         }
 }
 
 void PBCVHF_contract_jk_s1(int (*intor)(), double *jk, double *dms, double *buf,
-                           int *cell0_shls, int *bvk_cells,
-                           int *dm_translation, int n_dm, int16_t *dmindex,
-                           float *rij_cond, float *rkl_cond,
-                           CINTEnvVars *envs_cint, BVKEnvs *envs_bvk)
+                           int *cell0_shls, int *bvk_cells, int *cell0_ao_loc,
+                           int *dm_translation, int n_dm,
+                           CVHFOpt *vhfopt, CINTEnvVars *envs_cint, BVKEnvs *envs_bvk)
 {
         int bvk_ncells = envs_bvk->ncells;
         int nbands = envs_bvk->nbands;
@@ -370,19 +345,17 @@ void PBCVHF_contract_jk_s1(int (*intor)(), double *jk, double *dms, double *buf,
         int dm_jk_off = dm_translation[cell_j * bvk_ncells + cell_k];
         size_t Nbasp = nbasp;
         size_t nn0 = Nbasp * Nbasp;
-        int cutoff = envs_bvk->cutoff;
-        int dmidx_lk = dmindex[dm_lk_off*nn0 + lsh_cell0*Nbasp+ksh_cell0];
-        int dmidx_jk = dmindex[dm_jk_off*nn0 + jsh_cell0*Nbasp+ksh_cell0];
-        int dmidx_max = MAX(dmidx_lk, dmidx_jk);
-        if (dmidx_max < cutoff) {
+        double direct_scf_cutoff = envs_bvk->cutoff;
+        double dm_lk_cond = vhfopt->dm_cond[dm_lk_off*nn0 + lsh_cell0*Nbasp+ksh_cell0];
+        double dm_jk_cond = vhfopt->dm_cond[dm_jk_off*nn0 + jsh_cell0*Nbasp+ksh_cell0];
+        double dm_cond_max = MAX(dm_lk_cond, dm_jk_cond);
+        if (dm_cond_max < direct_scf_cutoff) {
                 return;
         }
-        if (!(*intor)(buf, cell0_shls, bvk_cells, cutoff-dmidx_max,
-                      rij_cond, rkl_cond, envs_cint, envs_bvk)) {
+        if (!(*intor)(buf, cell0_shls, bvk_cells, direct_scf_cutoff, envs_cint, envs_bvk)) {
                 return;
         }
 
-        int *cell0_ao_loc = envs_bvk->ao_loc;
         size_t naop = cell0_ao_loc[nbasp];
         size_t nn = naop * naop;
         size_t bn = naop * nbands;
@@ -424,10 +397,9 @@ void PBCVHF_contract_jk_s1(int (*intor)(), double *jk, double *dms, double *buf,
 }
 
 static void contract_jk_s2_kgtl(int (*intor)(), double *jk, double *dms, double *buf,
-                                int *cell0_shls, int *bvk_cells,
-                                int *dm_translation, int n_dm, int16_t *dmindex,
-                                float *rij_cond, float *rkl_cond,
-                                CINTEnvVars *envs_cint, BVKEnvs *envs_bvk)
+                                int *cell0_shls, int *bvk_cells, int *cell0_ao_loc,
+                                int *dm_translation, int n_dm,
+                                CVHFOpt *vhfopt, CINTEnvVars *envs_cint, BVKEnvs *envs_bvk)
 {
         int bvk_ncells = envs_bvk->ncells;
         int nbands = envs_bvk->nbands;
@@ -445,23 +417,20 @@ static void contract_jk_s2_kgtl(int (*intor)(), double *jk, double *dms, double 
         int dm_kl_off = dm_translation[cell_k*bvk_ncells+cell_l];
         size_t Nbasp = nbasp;
         size_t nn0 = Nbasp * Nbasp;
-        int cutoff = envs_bvk->cutoff;
-        int dmidx_jk = dmindex[dm_jk_off*nn0 + jsh_cell0*Nbasp+ksh_cell0];
-        int dmidx_jl = dmindex[dm_jl_off*nn0 + jsh_cell0*Nbasp+lsh_cell0];
-        int dmidx_lk = dmindex[dm_lk_off*nn0 + lsh_cell0*Nbasp+ksh_cell0];
-        int dmidx_kl = dmindex[dm_kl_off*nn0 + ksh_cell0*Nbasp+lsh_cell0];
-        int dmidx_max = MAX(dmidx_jk, dmidx_jl);
-        dmidx_max = MAX(dmidx_max, dmidx_lk);
-        dmidx_max = MAX(dmidx_max, dmidx_kl);
-        if (dmidx_max < cutoff) {
+        double direct_scf_cutoff = envs_bvk->cutoff;
+        double dm_jk_cond = vhfopt->dm_cond[dm_jk_off*nn0 + jsh_cell0*Nbasp+ksh_cell0];
+        double dm_jl_cond = vhfopt->dm_cond[dm_jl_off*nn0 + jsh_cell0*Nbasp+lsh_cell0];
+        double dm_lk_cond = vhfopt->dm_cond[dm_lk_off*nn0 + lsh_cell0*Nbasp+ksh_cell0];
+        double dm_kl_cond = vhfopt->dm_cond[dm_kl_off*nn0 + ksh_cell0*Nbasp+lsh_cell0];
+        double dm_cond_max = MAX(dm_jk_cond, dm_jl_cond);
+        dm_cond_max = MAX(dm_cond_max, dm_lk_cond + dm_kl_cond);
+        if (dm_cond_max < direct_scf_cutoff) {
                 return;
         }
-        if (!(*intor)(buf, cell0_shls, bvk_cells, cutoff-dmidx_max,
-                      rij_cond, rkl_cond, envs_cint, envs_bvk)) {
+        if (!(*intor)(buf, cell0_shls, bvk_cells, direct_scf_cutoff, envs_cint, envs_bvk)) {
                 return;
         }
 
-        int *cell0_ao_loc = envs_bvk->ao_loc;
         size_t naop = cell0_ao_loc[nbasp];
         size_t nn = naop * naop;
         size_t bn = naop * nbands;
@@ -509,177 +478,21 @@ static void contract_jk_s2_kgtl(int (*intor)(), double *jk, double *dms, double 
 }
 
 void PBCVHF_contract_jk_s2kl(int (*intor)(), double *jk, double *dms, double *buf,
-                             int *cell0_shls, int *bvk_cells,
-                             int *dm_translation, int n_dm, int16_t *dmindex,
-                             float *rij_cond, float *rkl_cond,
-                             CINTEnvVars *envs_cint, BVKEnvs *envs_bvk)
+                             int *cell0_shls, int *bvk_cells, int *cell0_ao_loc,
+                             int *dm_translation, int n_dm,
+                             CVHFOpt *vhfopt, CINTEnvVars *envs_cint, BVKEnvs *envs_bvk)
 {
         int nbasp = envs_bvk->nbasp;
         int ksh = cell0_shls[2] + bvk_cells[2] * nbasp;
         int lsh = cell0_shls[3] + bvk_cells[3] * nbasp;
         if (ksh > lsh) {
                 contract_jk_s2_kgtl(intor, jk, dms, buf, cell0_shls, bvk_cells,
-                                    dm_translation, n_dm, dmindex,
-                                    rij_cond, rkl_cond, envs_cint, envs_bvk);
+                                    cell0_ao_loc, dm_translation, n_dm,
+                                    vhfopt, envs_cint, envs_bvk);
         } else if (ksh == lsh) {
                 PBCVHF_contract_jk_s1(intor, jk, dms, buf, cell0_shls, bvk_cells,
-                                      dm_translation, n_dm, dmindex,
-                                      rij_cond, rkl_cond, envs_cint, envs_bvk);
-        }
-}
-
-static void approx_bvk_rcond0(float *rcond, int ish0, int ish1, BVKEnvs *envs_bvk,
-                              int *atm, int natm, int *bas, int nbas, double *env)
-{
-        int nbasp = envs_bvk->nbasp;
-        int nbas_bvk = nbasp * envs_bvk->ncells;
-        int *seg_loc = envs_bvk->seg_loc;
-        int *seg2sh = envs_bvk->seg2sh;
-        int iseg0 = seg_loc[ish0];
-        int iseg1 = seg_loc[ish1];
-        int jseg0 = 0;
-        int jseg1 = seg_loc[nbas_bvk];
-        int rs_cell_nbas = seg_loc[nbasp];
-        float *xcond = rcond;
-        float *ycond = rcond + rs_cell_nbas * nbas;
-        float *zcond = rcond + rs_cell_nbas * nbas * 2;
-        float *cache = malloc(sizeof(float) * nbas*3);
-        float *xj = cache;
-        float *yj = cache + nbas;
-        float *zj = cache + nbas * 2;
-        int ish, jsh, iseg, jseg, jsh0, jsh1;
-        int ptr_coord, n;
-        float ai, aj, aij, ci, cj, xi, yi, zi, xci, yci, zci;
-
-        for (jsh = 0; jsh < nbas; jsh++) {
-                ptr_coord = atm(PTR_COORD, bas(ATOM_OF, jsh));
-                xj[jsh] = env[ptr_coord+0];
-                yj[jsh] = env[ptr_coord+1];
-                zj[jsh] = env[ptr_coord+2];
-        }
-
-        for (iseg = iseg0; iseg < iseg1; iseg++) {
-                ish = seg2sh[iseg];
-                ai = env[bas(PTR_EXP, ish) + bas(NPRIM_OF, ish) - 1];
-                ptr_coord = atm(PTR_COORD, bas(ATOM_OF, ish));
-                xi = env[ptr_coord+0];
-                yi = env[ptr_coord+1];
-                zi = env[ptr_coord+2];
-                for (jseg = jseg0; jseg < jseg1; jseg++) {
-                        jsh0 = seg2sh[jseg];
-                        jsh1 = seg2sh[jseg+1];
-                        aj = env[bas(PTR_EXP, jsh0) + bas(NPRIM_OF, jsh0) - 1];
-                        aij = ai + aj;
-                        ci = ai / aij;
-                        cj = aj / aij;
-                        xci = ci * xi;
-                        yci = ci * yi;
-                        zci = ci * zi;
-#pragma GCC ivdep
-                        for (jsh = jsh0; jsh < jsh1; jsh++) {
-                                n = iseg * nbas + jsh;
-                                xcond[n] = xci + cj * xj[jsh];
-                                ycond[n] = yci + cj * yj[jsh];
-                                zcond[n] = zci + cj * zj[jsh];
-                        }
-                }
-        }
-        free(cache);
-}
-
-void PBCapprox_bvk_rcond(float *rcond, int ish_bvk, int jsh_bvk, BVKEnvs *envs_bvk,
-                         int *atm, int natm, int *bas, int nbas, double *env,
-                         float *cache)
-{
-        int *seg_loc = envs_bvk->seg_loc;
-        int *seg2sh = envs_bvk->seg2sh;
-        int iseg0 = seg_loc[ish_bvk];
-        int jseg0 = seg_loc[jsh_bvk];
-        int iseg1 = seg_loc[ish_bvk+1];
-        int jseg1 = seg_loc[jsh_bvk+1];
-        int nish = seg2sh[iseg1] - seg2sh[iseg0];
-        int njsh = seg2sh[jseg1] - seg2sh[jseg0];
-        int nij = nish * njsh;
-        int ioff = seg2sh[iseg0];
-        int joff = seg2sh[jseg0];
-        int rij_off = ioff * njsh + joff;
-        float *xcond = rcond;
-        float *ycond = rcond + nij;
-        float *zcond = rcond + nij * 2;
-        float ai, aj, aij, ci, cj;
-        float xci, yci, zci;
-        float *xj = cache;
-        float *yj = cache + njsh;
-        float *zj = cache + njsh * 2;
-        int iseg, jseg, ish, jsh;
-        int ptr_coord, n;
-
-        int ish0 = seg2sh[iseg0];
-        int jsh0 = seg2sh[jseg0];
-        int ish1 = seg2sh[iseg1];
-        int jsh1 = seg2sh[jseg1];
-
-        jsh0 = seg2sh[jseg0];
-        jsh1 = seg2sh[jseg1];
-        for (jsh = jsh0; jsh < jsh1; jsh++) {
-                ptr_coord = atm(PTR_COORD, bas(ATOM_OF, jsh));
-                xj[jsh-jsh0] = env[ptr_coord+0];
-                yj[jsh-jsh0] = env[ptr_coord+1];
-                zj[jsh-jsh0] = env[ptr_coord+2];
-        }
-
-        for (iseg = iseg0; iseg < iseg1; iseg++) {
-                ish0 = seg2sh[iseg];
-                ish1 = seg2sh[iseg+1];
-                ai = env[bas(PTR_EXP, ish0) + bas(NPRIM_OF, ish0) - 1];
-                for (jseg = jseg0; jseg < jseg1; jseg++) {
-                        jsh0 = seg2sh[jseg];
-                        jsh1 = seg2sh[jseg+1];
-                        aj = env[bas(PTR_EXP, jsh0) + bas(NPRIM_OF, jsh0) - 1];
-                        aij = ai + aj;
-                        ci = ai / aij;
-                        cj = aj / aij;
-                        for (ish = ish0; ish < ish1; ish++) {
-                                ptr_coord = atm(PTR_COORD, bas(ATOM_OF, ish));
-                                xci = ci * env[ptr_coord+0];
-                                yci = ci * env[ptr_coord+1];
-                                zci = ci * env[ptr_coord+2];
-#pragma GCC ivdep
-                                for (jsh = jsh0; jsh < jsh1; jsh++) {
-                                        n = ish * njsh + jsh - rij_off;
-                                        xcond[n] = xci + cj * xj[jsh-joff];
-                                        ycond[n] = yci + cj * yj[jsh-joff];
-                                        zcond[n] = zci + cj * zj[jsh-joff];
-                                }
-                        }
-                }
-        }
-}
-
-static int16_t _max_qindex(int16_t *qindex, size_t Nbas, int ish0,
-                           int ish1, int jsh0, int jsh1)
-{
-        if (ish0 == ish1 || jsh0 == jsh1) {
-                return INDEX_MIN;
-        }
-
-        int16_t q_max = INDEX_MIN;
-        size_t ish, jsh;
-        for (ish = ish0; ish < ish1; ish++) {
-        for (jsh = jsh0; jsh < jsh1; jsh++) {
-                q_max = MAX(q_max, qindex[ish*Nbas+jsh]);
-        } }
-        return q_max;
-}
-
-static int16_t _max_dmindex(int16_t *dmindex, BVKEnvs *envs_bvk)
-{
-        int bvk_ncells = envs_bvk->ncells;
-        size_t nbasp = envs_bvk->nbasp;
-        size_t i;
-        int16_t dm_max = INDEX_MIN;
-        for (i = 0; i < nbasp*nbasp*bvk_ncells; i++) {
-                dm_max = MAX(dm_max, dmindex[i]);
+                                      cell0_ao_loc, dm_translation, n_dm,
+                                      vhfopt, envs_cint, envs_bvk);
         }
         return dm_max;
 }
@@ -719,12 +532,11 @@ static void qindex_abstract(int16_t *cond_abs, int16_t *qindex, size_t Nbas,
  */
 void PBCVHF_direct_drv(void (*fdot)(), int (*intor)(),
                        double *out, double *dms, int size_v, int n_dm,
-                       int bvk_ncells, int nimgs, int nkpts, int nbasp, int comp,
-                       int *seg_loc, int *seg2sh, int *cell0_ao_loc,
-                       int *cell0_bastype, int *shls_slice, int *dm_translation,
-                       int16_t *qindex, int16_t *dmindex, int cutoff,
-                       int16_t *qcell0_ijij, int16_t *qcell0_iijj,
-                       int *ish_idx, int *jsh_idx, CINTOpt *cintopt, int cache_size,
+                       int bvk_ncells, int nimgs,
+                       int nkpts, int nbands, int nbasp, int comp,
+                       int *sh_loc, int *cell0_ao_loc, int *shls_slice,
+                       int *dm_translation, int8_t *ovlp_mask, int *bas_map,
+                       CINTOpt *cintopt, CVHFOpt *vhfopt, int cache_size,
                        int *atm, int natm, int *bas, int nbas, double *env)
 {
         size_t ish0 = shls_slice[0];
@@ -737,49 +549,25 @@ void PBCVHF_direct_drv(void (*fdot)(), int (*intor)(),
         size_t lsh1 = shls_slice[7];
         size_t nish = ish1 - ish0;
         size_t njsh = jsh1 - jsh0;
-        size_t nksh = ksh1 - ksh0;
+        //size_t nksh = ksh1 - ksh0;
         size_t nlsh = lsh1 - lsh0;
-        size_t nkl = nksh * nlsh;
-        int s2kl = 0;
-        if (fdot == &PBCVHF_contract_j_s2kl ||
-            fdot == &PBCVHF_contract_k_s2kl ||
-            fdot == &PBCVHF_contract_jk_s2kl) {
-                nkl = nksh * (nksh + 1) / 2;
-                s2kl = 1;
-        }
-
+        size_t nij = nish * njsh;
         BVKEnvs envs_bvk = {bvk_ncells, nimgs,
-                nkpts, bvk_ncells, nbasp, comp, 0, 0,
-                seg_loc, seg2sh, cell0_ao_loc, shls_slice, NULL, NULL, NULL,
-                NULL, qindex, cutoff};
-
-        int rs_cell_nbas = seg_loc[nbasp];
-        float *rij_cond = malloc(sizeof(float) * rs_cell_nbas*nbas*3);
-        approx_bvk_rcond0(rij_cond, ish0, ish1, &envs_bvk,
-                          atm, natm, bas, nbas, env);
-        int dsh_max = nimgs * 3;
-        assert(env[PTR_RANGE_OMEGA] != 0);
-
-        size_t Nbas = nbas;
-        size_t nbas_bvk = nbasp * bvk_ncells;
-        int16_t *qidx_iijj = malloc(sizeof(int16_t) * nbas_bvk * nbas_bvk);
-        if (qidx_iijj == NULL) {
-                fprintf(stderr, "failed to allocate qidx_iijj. nbas_bvk=%zd",
-                        nbas_bvk);
-        }
-        qindex_abstract(qidx_iijj, qindex+Nbas*Nbas, Nbas, &envs_bvk);
-
-        int16_t dmidx_max = _max_dmindex(dmindex, &envs_bvk);
-        int16_t cutoff1 = cutoff - dmidx_max;
+                nkpts, nbands, nbasp, comp, 0, 0,
+                sh_loc, cell0_ao_loc, bas_map, shls_slice, NULL, NULL, NULL,
+                ovlp_mask, vhfopt->q_cond, vhfopt->direct_scf_cutoff};
 
 #pragma omp parallel
 {
-        size_t kl, n;
-        int ij, i, j, k, l;
+        size_t ij, n;
+        int i, j, k, l;
         int bvk_cells[4] = {0};
         int cell0_shls[4];
         CINTEnvVars envs_cint;
         PBCminimal_CINTEnvVars(&envs_cint, atm, natm, bas, nbas, env, cintopt);
+
+        double *v_priv = calloc(size_v, sizeof(double));
+        double *buf = malloc(sizeof(double) * cache_size);
 
         double *v_priv = calloc(size_v, sizeof(double));
         double *buf = malloc(sizeof(double) * MAX(cache_size, dsh_max*3));
@@ -805,36 +593,25 @@ void PBCVHF_direct_drv(void (*fdot)(), int (*intor)(),
                     seg_loc[k] == seg_loc[k+1] || seg_loc[l] == seg_loc[l+1]) {
                         continue;
                 }
-                kl_cutoff = cutoff1 - qklkl_max;
-                qk = qidx_iijj + k * nbas_bvk;
-                ql = qidx_iijj + l * nbas_bvk;
-                qcell0k = qcell0_iijj + k * nbasp;
-                qcell0l = qcell0_iijj + l * nbasp;
+                i += ish0;
+                j += jsh0;
+                cell0_shls[0] = i;
+                cell0_shls[1] = j % nbasp;
+                bvk_cells[1] = j / nbasp;
 
-                cell0_shls[2] = k % nbasp;
-                cell0_shls[3] = l % nbasp;
-                bvk_cells[2] = k / nbasp;
-                bvk_cells[3] = l / nbasp;
-                PBCapprox_bvk_rcond(rkl_cond, k, l, &envs_bvk,
-                                    atm, natm, bas, nbas, env, (float *)buf);
-
-                for (ij = 0; ij < nish * njsh; ij++) {
-                        i = ish_idx[ij];
-                        j = jsh_idx[ij];
-                        if (qcell0_ijij[j*nbasp+i] < kl_cutoff) {
-                                break;
-                        }
-                        if (qcell0k[i] + ql[j] < cutoff1 ||
-                            qcell0l[i] + qk[j] < cutoff1) {
+                for (k = ksh0; k < ksh1; k++) {
+                for (l = ksh0; l < lsh1; l++) {
+                        if (!ovlp_mask[(k-ksh0)*nlsh+l-lsh0]) {
                                 continue;
                         }
-                        cell0_shls[0] = i;
-                        cell0_shls[1] = j % nbasp;
-                        bvk_cells[1] = j / nbasp;
+                        cell0_shls[2] = k % nbasp;
+                        cell0_shls[3] = l % nbasp;
+                        bvk_cells[2] = k / nbasp;
+                        bvk_cells[3] = l / nbasp;
                         (*fdot)(intor, v_priv, dms, buf, cell0_shls, bvk_cells,
-                                dm_translation, n_dm, dmindex,
-                                rij_cond, rkl_cond, &envs_cint, &envs_bvk);
-                }
+                                cell0_ao_loc, dm_translation, n_dm,
+                                vhfopt, &envs_cint, &envs_bvk);
+                } }
         }
 #pragma omp critical
         {

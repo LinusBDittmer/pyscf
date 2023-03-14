@@ -91,7 +91,13 @@ def qmmm_for_scf(method, mm_mol):
     Args:
         mm_mol : MM Mole object
     '''
-    assert (isinstance(method, (scf.hf.SCF, mcscf.casci.CASBase)))
+    assert (isinstance(scf_method, (scf.hf.SCF, mcscf.casci.CASCI)))
+
+    if isinstance(scf_method, scf.hf.SCF):
+        # Avoid to initialize _QMMM twice
+        if isinstance(scf_method, _QMMM):
+            scf_method.mm_mol = mm_mol
+            return scf_method
 
     if isinstance(method, scf.hf.SCF):
         # Avoid to initialize QMMM twice
@@ -273,7 +279,29 @@ def qmmm_grad_for_scf(scf_grad):
         return scf_grad
 
     assert (isinstance(scf_grad.base, scf.hf.SCF) and
-           isinstance(scf_grad.base, QMMM))
+           isinstance(scf_grad.base, _QMMM))
+
+    grad_class = scf_grad.__class__
+    class QMMM(_QMMMGrad, grad_class):
+        def __init__(self, scf_grad):
+            self.__dict__.update(scf_grad.__dict__)
+
+        def dump_flags(self, verbose=None):
+            grad_class.dump_flags(self, verbose)
+            logger.info(self, '** Add background charges for %s **', grad_class)
+            if self.verbose >= logger.DEBUG1:
+                logger.debug1(self, 'Charge      Location')
+                coords = self.base.mm_mol.atom_coords()
+                charges = self.base.mm_mol.atom_charges()
+                for i, z in enumerate(charges):
+                    logger.debug1(self, '%.9g    %s', z, coords[i])
+            return self
+
+        def get_hcore(self, mol=None):
+            ''' (QM 1e grad) + <-d/dX i|q_mm/r_mm|j>'''
+            if mol is None: mol = self.mol
+            coords = self.base.mm_mol.atom_coords()
+            charges = self.base.mm_mol.atom_charges()
 
     return scf_grad.view(lib.make_class((QMMMGrad, scf_grad.__class__)))
 

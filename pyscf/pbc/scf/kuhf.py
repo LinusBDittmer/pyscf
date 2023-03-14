@@ -326,14 +326,21 @@ def init_guess_by_chkfile(cell, chkfile_name, project=None, kpts=None):
                 mo[k] /= np.sqrt(norm)
         return mo
 
-    def makedm(mos, occs):
-        moa, mob = mos
-        mos = (fproj(moa, chk_kpts), fproj(mob, chk_kpts))
-        dm = make_rdm1(mos, occs)
-        if kpts.shape != chk_kpts.shape or not np.allclose(kpts, chk_kpts):
-            dm = [addons.project_dm_k2k(cell, dm[0], chk_kpts, kpts),
-                  addons.project_dm_k2k(cell, dm[1], chk_kpts, kpts)]
-        return np.asarray(dm)
+    if kpts.shape == chk_kpts.shape and np.allclose(kpts, chk_kpts):
+        def makedm(mos, occs):
+            moa, mob = mos
+            mos = (fproj(moa, kpts), fproj(mob, kpts))
+            return make_rdm1(mos, occs)
+    else:
+        def makedm(mos, occs):
+            where = [np.argmin(lib.norm(chk_kpts-kpt, axis=1)) for kpt in kpts]
+            moa, mob = mos
+            occa, occb = occs
+            dkpts = [chk_kpts[w]-kpts[i] for i,w in enumerate(where)]
+            mos = (fproj([moa[w] for w in where], dkpts),
+                   fproj([mob[w] for w in where], dkpts))
+            occs = ([occa[i] for i in where], [occb[i] for i in where])
+            return make_rdm1(mos, occs)
 
     if getattr(mo[0], 'ndim', None) == 2:  # KRHF
         mo_occa = [(occ>1e-8).astype(np.double) for occ in mo_occ]
@@ -566,11 +573,8 @@ class KUHF(khf.KSCF):
         from pyscf.pbc.grad import kuhf
         return kuhf.Gradients(self)
 
-    def to_ks(self, xc='HF'):
-        '''Convert to RKS object.
-        '''
-        from pyscf.pbc import dft
-        return self._transfer_attrs_(dft.KUKS(self.cell, self.kpts, xc=xc))
+del (WITH_META_LOWDIN, PRE_ORTH_METHOD)
+
 
     def convert_from_(self, mf):
         '''Convert given mean-field object to KUHF'''

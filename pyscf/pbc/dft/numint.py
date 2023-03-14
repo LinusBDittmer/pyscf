@@ -26,7 +26,7 @@ from pyscf.dft.numint import _scale_ao, _contract_rho
 from pyscf.dft.numint import OCCDROP
 from pyscf.dft.gen_grid import NBINS, CUTOFF, ALIGNMENT_UNIT
 from pyscf.pbc.dft.gen_grid import make_mask, BLKSIZE
-from pyscf.pbc.lib.kpts_helper import is_zero, KPT_DIFF_TOL
+from pyscf.pbc.lib.kpts_helper import member, is_zero
 from pyscf.pbc.lib.kpts import KPoints
 
 
@@ -115,7 +115,11 @@ def eval_rho(cell, ao, dm, non0tab=None, xctype='LDA', hermi=0, with_lapl=True,
         pyscf.dft.numint.eval_rho
 
     '''
-    ngrids, nao = ao.shape[-2:]
+
+    if xctype == 'LDA' or xctype == 'HF':
+        ngrids, nao = ao.shape
+    else:
+        ngrids, nao = ao[0].shape
 
     # complex orbitals or density matrix
     if numpy.iscomplexobj(ao) or numpy.iscomplexobj(dm):
@@ -192,7 +196,10 @@ def eval_rho2(cell, ao, mo_coeff, mo_occ, non0tab=None, xctype='LDA',
     '''Refer to `pyscf.dft.numint.eval_rho2` for full documentation.
     '''
     xctype = xctype.upper()
-    ngrids, nao = ao.shape[-2:]
+    if xctype == 'LDA' or xctype == 'HF':
+        ngrids, nao = ao.shape
+    else:
+        ngrids, nao = ao[0].shape
 
     # complex orbitals or density matrix
     if numpy.iscomplexobj(ao) or numpy.iscomplexobj(mo_coeff):
@@ -613,6 +620,10 @@ def nr_rks_fxc(ni, cell, grids, xc_code, dm0, dms, relativity=0, hermi=0,
     Examples:
 
     '''
+    if kpts is None:
+        kpts = numpy.zeros((1,3))
+    if isinstance(kpts, KPoints):
+        kpts = kpts.kpts_ibz
     xctype = ni._xc_type(xc_code)
     if xctype == 'LDA':
         ao_deriv = 0
@@ -684,12 +695,72 @@ def nr_rks_fxc_st(ni, cell, grids, xc_code, dm0, dms_alpha, relativity=0, single
 
     Ref. CPL, 256, 454
     '''
-    if fxc is None:
-        spin = 1
-        fxc = ni.cache_xc_kernel1(cell, grids, xc_code, dm0, spin, kpts,
-                                  max_memory=max_memory)[2]
-    if singlet:
-        fxc = fxc[0,:,0] + fxc[0,:,1]
+    if kpts is None:
+        kpts = numpy.zeros((1,3))
+    xctype = ni._xc_type(xc_code)
+    if xctype == 'LDA':
+        ao_deriv = 0
+    elif xctype == 'GGA':
+        ao_deriv = 1
+    elif xctype == 'MGGA':
+        if (any(x in xc_code.upper() for x in ('CC06', 'CS', 'BR89', 'MK00'))):
+            raise NotImplementedError('laplacian in meta-GGA method')
+        ao_deriv = 1
+    elif xctype == 'NLC':
+        raise NotImplementedError('NLC')
+    elif xctype == 'HF':
+        ao_deriv = 0
+    else:
+        raise NotImplementedError(f'r_vxc for functional {xc_code}')
+
+    if is_zero(kpts) and numpy.result_type(*dms_alpha) == numpy.double:
+        # for real orbitals and real matrix, K_{ia,bj} = K_{ia,jb}
+        # The output matrix v = K*x_{ia} is symmetric
+        hermi = 1
+    else:
+        hermi = 0
+
+    if xctype in ('LDA', 'GGA', 'MGGA'):
+        make_rho, nset, nao = ni._gen_rho_evaluator(cell, dms_alpha, hermi)
+        if ((xctype == 'LDA' and fxc is None) or
+            (xctype == 'GGA' and rho0 is None)):
+            make_rho0 = ni._gen_rho_evaluator(cell, dm0, 1)[0]
+        shls_slice = (0, cell.nbas)
+        ao_loc = cell.ao_loc_nr()
+        deriv = 2
+        vmat = [0] * nset
+        p1 = 0
+        for ao_k1, ao_k2, mask, weight, coords \
+                in ni.block_loop(cell, grids, nao, ao_deriv, kpts, None, max_memory):
+            if fxc is None:
+                rho0a = make_rho0(0, ao_k1, mask, xctype) * .5
+                _rho = (rho0a, rho0a)
+                _fxc = ni.eval_xc_eff(xc_code, _rho, deriv, xctype=xctype)[2]
+            else:
+                p0, p1 = p1, p1 + weight.size
+                _fxc = fxc[:,:,:,:,p0:p1]
+            if singlet:
+                _fxc = _fxc[0,:,0] + _fxc[0,:,1]
+            else:
+                _fxc = _fxc[0,:,0] - _fxc[0,:,1]
+
+            for i in range(nset):
+                rho1 = make_rho(i, ao_k1, mask, xctype)
+                if xctype == 'LDA':
+                    vxc1 = numpy.einsum('g,yg->yg', rho1, _fxc[0])
+                else:
+                    vxc1 = numpy.einsum('xg,xyg->yg', rho1, _fxc)
+                wv = weight * vxc1
+                vmat[i] += ni._vxc_mat(cell, ao_k1, wv, mask, xctype,
+                                       shls_slice, ao_loc, hermi)
+
+        vmat = numpy.stack(vmat)
+        # For only real orbitals, K_{ia,bj} = K_{ia,jb}. It simplifies
+        # [(\nabla mu) nu + mu (\nabla nu)] * fxc_jb = ((\nabla mu) nu f_jb) + h.c.
+        if hermi == 1:
+            vmat = vmat + vmat.conj().swapaxes(-2,-1)
+        if nset == 1:
+            vmat = vmat.reshape(dms_alpha.shape)
     else:
         fxc = fxc[0,:,0] - fxc[0,:,1]
     return ni.nr_rks_fxc(cell, grids, xc_code, dm0, dms_alpha, hermi=0, fxc=fxc,
@@ -833,10 +904,9 @@ def cache_xc_kernel(ni, cell, grids, xc_code, mo_coeff, mo_occ, spin=0,
     '''
     if kpts is None:
         kpts = numpy.zeros((1,3))
-    elif isinstance(kpts, KPoints):
-        if kpts.kpts.size > 3: # multiple k points
-            mo_coeff = kpts.transform_mo_coeff(mo_coeff)
-            mo_occ = kpts.transform_mo_occ(mo_occ)
+    if isinstance(kpts, KPoints):
+        mo_coeff = kpts.transform_mo_coeff(mo_coeff)
+        mo_occ = kpts.transform_mo_occ(mo_occ)
         kpts = kpts.kpts
     xctype = ni._xc_type(xc_code)
     if xctype == 'GGA':
@@ -940,8 +1010,6 @@ class NumInt(lib.StreamObject, numint.LibXCMixin):
     '''Generalization of pyscf's NumInt class for a single k-point shift and
     periodic images.
     '''
-
-    cutoff = CUTOFF * 1e2  # cutoff for small AO product
 
     def nr_vxc(self, cell, grids, xc_code, dms, spin=0, relativity=0, hermi=1,
                kpt=None, kpts_band=None, max_memory=2000, verbose=None):
@@ -1064,8 +1132,14 @@ class NumInt(lib.StreamObject, numint.LibXCMixin):
             yield ao_k1, ao_k2, non0, weight, coords
             ao_k1 = ao_k2 = None
 
-    _gen_rho_evaluator = numint.NumInt._gen_rho_evaluator
+    def eval_rho1(self, cell, ao, dm, non0tab=None, xctype='LDA', hermi=0,
+                  with_lapl=True, cutoff=None, ao_cutoff=None, verbose=None):
+        return eval_rho(cell, ao, dm, non0tab, xctype, hermi, with_lapl, verbose)
 
+    eval_ao = staticmethod(eval_ao)
+    make_mask = staticmethod(make_mask)
+    eval_rho = staticmethod(eval_rho)
+    eval_rho2 = staticmethod(eval_rho2)
     nr_rks_fxc = nr_rks_fxc
     nr_uks_fxc = nr_uks_fxc
     nr_rks_fxc_st = nr_rks_fxc_st
@@ -1215,22 +1289,14 @@ class KNumInt(lib.StreamObject, numint.LibXCMixin):
         ngrids = grids_coords.shape[0]
         comp = (deriv+1)*(deriv+2)*(deriv+3)//6
 
-        if kpts is None:
-            kpts = numpy.zeros((1,3))
-
         kpts_all = kpts
         if kpts_band is not None:
             kpts_band = numpy.reshape(kpts_band, (-1,3))
-            dk = abs(kpts[:,None] - kpts_band).max(axis=2)
-            k_idx, kband_idx = numpy.where(dk < KPT_DIFF_TOL)
-            where = numpy.empty(len(kpts_band), dtype=int)
-            where[kband_idx] = k_idx
-            kband_mask = numpy.ones(len(kpts_band), dtype=bool)
-            kband_mask[kband_idx] = False
-            kpts_band_uniq = kpts_band[kband_mask]
-            if kpts_band_uniq.size > 0:
+            where = [member(k, kpts) for k in kpts_band]
+            where = [k_id[0] if len(k_id)>0 else None for k_id in where]
+            kpts_band_uniq = [k for k in kpts_band if len(member(k, kpts))==0]
+            if kpts_band_uniq:
                 kpts_all = numpy.vstack([kpts,kpts_band_uniq])
-                where[kband_mask] = len(kpts) + numpy.arange(kpts_band_uniq.shape[0])
 
 # NOTE to index grids.non0tab, the blksize needs to be the integer multiplier of BLKSIZE
         if blksize is None:
@@ -1249,11 +1315,19 @@ class KNumInt(lib.StreamObject, numint.LibXCMixin):
             weight = grids_weights[ip0:ip1]
             non0 = non0tab[ip0//BLKSIZE:]
             ao_kall = self.eval_ao(cell, coords, kpts_all, deriv=deriv, non0tab=non0)
-            if kpts_band is None:
-                ao_k1 = ao_k2 = ao_kall
-            else:
-                ao_k1 = [ao_kall[k] for k in where]
+            if kpts_band is not None:
                 ao_k2 = ao_kall[:len(kpts)]
+                ao_k1 = []
+                i = 0
+                for k_idx in where:
+                    if k_idx is not None:
+                        ao_k1.append(ao_kall[k_idx])
+                    else:
+                        ao_k1.append(ao_kall[i+len(kpts)])
+                        i += 1
+                assert(i+len(kpts) == len(kpts_all))
+            else:
+                ao_k1 = ao_k2 = ao_kall
             yield ao_k1, ao_k2, non0, weight, coords
             ao_k1 = ao_k2 = None
 

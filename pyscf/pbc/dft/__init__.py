@@ -37,9 +37,7 @@ from pyscf.pbc.lib import kpts as libkpts
 GKS = gks.GKS
 UKS = uks.UKS
 ROKS = roks.ROKS
-gto.Cell.GKS = property(GKS)
-gto.Cell.UKS = property(UKS)
-gto.Cell.ROKS = property(ROKS)
+GKS = gks.GKS
 
 def KRKS(cell, *args, **kwargs):
     for arg in args:
@@ -49,7 +47,6 @@ def KRKS(cell, *args, **kwargs):
         if isinstance(kwargs['kpts'], libkpts.KPoints):
             return krks_ksymm.KRKS(cell, *args, **kwargs)
     return krks.KRKS(cell, *args, **kwargs)
-gto.Cell.KRKS = property(KRKS)
 
 def KUKS(cell, *args, **kwargs):
     for arg in args:
@@ -59,12 +56,9 @@ def KUKS(cell, *args, **kwargs):
         if isinstance(kwargs['kpts'], libkpts.KPoints):
             return kuks_ksymm.KUKS(cell, *args, **kwargs)
     return kuks.KUKS(cell, *args, **kwargs)
-gto.Cell.KUKS = property(KUKS)
 
 KROKS = kroks.KROKS
 KGKS = kgks.KGKS
-gto.Cell.KROKS = property(KROKS)
-gto.Cell.KGKS =  property(KGKS)
 
 def KRKSpU(cell, *args, **kwargs):
     for arg in args:
@@ -74,7 +68,6 @@ def KRKSpU(cell, *args, **kwargs):
         if isinstance(kwargs['kpts'], libkpts.KPoints):
             return krkspu_ksymm.KRKSpU(cell, *args, **kwargs)
     return krkspu.KRKSpU(cell, *args, **kwargs)
-gto.Cell.KRKSpU = property(KRKSpU)
 
 def KUKSpU(cell, *args, **kwargs):
     for arg in args:
@@ -84,7 +77,6 @@ def KUKSpU(cell, *args, **kwargs):
         if isinstance(kwargs['kpts'], libkpts.KPoints):
             return kukspu_ksymm.KUKSpU(cell, *args, **kwargs)
     return kukspu.KUKSpU(cell, *args, **kwargs)
-gto.Cell.KUKSpU = property(KUKSpU)
 
 def RKS(cell, *args, **kwargs):
     if cell.spin == 0:

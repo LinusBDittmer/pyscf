@@ -101,9 +101,7 @@ class KnownValues(unittest.TestCase):
         fcisolvers[0].nroots = fcisolvers[1].nroots = 2
         fcisolvers[0].wfnsym = 'A1'
         fcisolvers[1].wfnsym = 'B1'
-        mc = mcscf.addons.state_average_mix (mcscf.CASSCF (msym, 4, 4), fcisolvers, [0.25,]*4)
-        mo = mc.sort_mo([4,5,6,10], base=1)
-        mc.kernel(mo)
+        mc = mcscf.addons.state_average_mix (mcscf.CASSCF (msym, 4, 4), fcisolvers, [0.25,]*4).run ()
         self.assertAlmostEqual (mc.e_tot, mc_ref.e_tot, 8)
         for e1, e0 in zip (numpy.sort (mc.e_states), mc_ref.e_states):
             self.assertAlmostEqual (e1, e0, 5)
@@ -113,9 +111,7 @@ class KnownValues(unittest.TestCase):
         fcisolvers[0].nroots = fcisolvers[1].nroots = 2
         fcisolvers[0].wfnsym = 'A1'
         fcisolvers[1].wfnsym = 'B1'
-        mc = mcscf.addons.state_average_mix (mcscf.CASSCF (msym, 4, 4), fcisolvers, [0.25,]*4).newton ()
-        mo = mc.sort_mo([4,5,6,10], base=1)
-        mc.kernel(mo)
+        mc = mcscf.addons.state_average_mix (mcscf.CASSCF (msym, 4, 4), fcisolvers, [0.25,]*4).newton ().run ()
         self.assertAlmostEqual (mc.e_tot, mc_ref.e_tot, 8)
         for e1, e0 in zip (numpy.sort (mc.e_states), mc_ref.e_states):
             self.assertAlmostEqual (e1, e0, 5)

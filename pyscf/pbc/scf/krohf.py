@@ -370,14 +370,40 @@ class KROHF(khf.KRHF):
         return mulliken_meta(cell, dm, s=s, verbose=verbose,
                              pre_orth_method=pre_orth_method)
 
+    dip_moment = khf.KSCF.dip_moment
+
+    spin_square = pbcrohf.ROHF.spin_square
+
+    canonicalize = canonicalize
+
     def stability(self,
                   internal=getattr(__config__, 'pbc_scf_KSCF_stability_internal', True),
                   external=getattr(__config__, 'pbc_scf_KSCF_stability_external', False),
                   verbose=None):
         raise NotImplementedError
 
-    def to_ks(self, xc='HF'):
-        '''Convert to RKS object.
-        '''
-        from pyscf.pbc import dft
-        return self._transfer_attrs_(dft.KROKS(self.cell, self.kpts, xc=xc))
+    def convert_from_(self, mf):
+        '''Convert given mean-field object to KUHF'''
+        addons.convert_to_rhf(mf, self)
+        return self
+
+del (WITH_META_LOWDIN, PRE_ORTH_METHOD)
+
+
+if __name__ == '__main__':
+    from pyscf.pbc import gto
+    cell = gto.Cell()
+    cell.atom = '''
+    He 0 0 1
+    He 1 0 1
+    '''
+    cell.basis = '321g'
+    cell.a = np.eye(3) * 3
+    cell.mesh = [11] * 3
+    cell.verbose = 5
+    cell.spin = 2
+    cell.build()
+    mf = KROHF(cell, [2,1,1])
+    mf.kernel()
+    mf.analyze()
+

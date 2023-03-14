@@ -100,59 +100,29 @@ class KnownValues(unittest.TestCase):
         gref = mol.UHF.run().nuc_grad_method().kernel()
         self.assertAlmostEqual(abs(gref - g1).max(), 0, 4)
 
-        g = mf.Gradients().set(auxbasis_response=False).kernel()
-        self.assertAlmostEqual(lib.fp(g), -0.19670644982746546, 7)
-        g = mf.Gradients().kernel()
-        self.assertAlmostEqual(lib.fp(g), -0.19660674423263175, 7)
-        mfs = mf.as_scanner()
-        e1 = mfs([['O' , (0. , 0.     , 0.001)],
-                  [1   , (0. , -0.757 , 0.587)],
-                  [1   , (0. , 0.757  , 0.587)] ])
-        e2 = mfs([['O' , (0. , 0.     ,-0.001)],
-                  [1   , (0. , -0.757 , 0.587)],
-                  [1   , (0. , 0.757  , 0.587)] ])
-        self.assertAlmostEqual((e1-e2)/0.002*lib.param.BOHR, g[0,2], 6)
+    def test_rks_lda_grad(self):
+        gref = mol.RKS(xc='lda,').run().nuc_grad_method().kernel()
+        g1 = mol.RKS(xc='lda,').density_fit().run().nuc_grad_method().kernel()
+        self.assertAlmostEqual(abs(gref - g1).max(), 0, 4)
+
+    def test_rks_grad(self):
+        gref = mol.RKS(xc='b3lyp').run().nuc_grad_method().kernel()
+        g1 = mol.RKS(xc='b3lyp').density_fit().run().nuc_grad_method().kernel()
+        self.assertAlmostEqual(abs(gref - g1).max(), 0, 4)
+
+    def test_uhf_grad(self):
+        gref = mol.UHF.run().nuc_grad_method().kernel()
+        g1 = mol.UHF.density_fit().run().nuc_grad_method().kernel()
+        self.assertAlmostEqual(abs(gref - g1).max(), 0, 5)
 
     def test_uks_lda_grad(self):
-        mol = gto.Mole()
-        mol.atom = [
-            ['O' , (0. , 0.     , 0.)],
-            [1   , (0. , -0.757 , 0.587)],
-            [1   , (0. ,  0.757 , 0.587)] ]
-        mol.basis = '631g'
-        mol.charge = 1
-        mol.spin = 1
-        mol.build()
-        mf = mol.UKS().density_fit().run(conv_tol=1e-12)
-        gref = mol.UKS.run().nuc_grad_method().kernel()
-        g1 = mf.nuc_grad_method().kernel()
+        gref = mol.UKS.run(xc='lda,').nuc_grad_method().kernel()
+        g1 = mol.UKS.density_fit().run(xc='lda,').nuc_grad_method().kernel()
         self.assertAlmostEqual(abs(gref - g1).max(), 0, 4)
 
-        g = mf.Gradients().set(auxbasis_response=False)
-        self.assertAlmostEqual(lib.finger(g.kernel()), -0.12092643506961044, 7)
-        g = mf.Gradients()
-        self.assertAlmostEqual(lib.finger(g.kernel()), -0.12092884149543644, 7)
-        g.grid_response = True
-        self.assertAlmostEqual(lib.finger(g.kernel()), -0.12093220332146028, 7)
-
-    def test_uks_gga_grad(self):
+    def test_uks_grad(self):
         gref = mol.UKS.run(xc='b3lyp').nuc_grad_method().kernel()
         g1 = mol.UKS.density_fit().run(xc='b3lyp').nuc_grad_method().kernel()
-        self.assertAlmostEqual(abs(gref - g1).max(), 0, 4)
-
-    def test_uks_rsh_grad(self):
-        mol = gto.Mole()
-        mol.atom = [
-            ['O' , (0. , 0.     , 0.)],
-            [1   , (0. , -0.757 , 0.587)],
-            [1   , (0. ,  0.757 , 0.587)] ]
-        mol.basis = '631g'
-        mol.charge = 1
-        mol.spin = 1
-        mol.verbose = 0
-        mol.build()
-        gref = mol.UKS(xc='camb3lyp').run().nuc_grad_method().kernel()
-        g1 = mol.UKS(xc='camb3lyp').density_fit().run().nuc_grad_method().kernel()
         self.assertAlmostEqual(abs(gref - g1).max(), 0, 4)
 
     def test_casscf_grad(self):

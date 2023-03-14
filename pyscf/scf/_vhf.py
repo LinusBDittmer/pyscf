@@ -463,8 +463,16 @@ def direct(dms, atm, bas, env, vhfopt=None, hermi=0, cart=False,
 # jkdescript: 'ij->s1kl', 'kl->s2ij', ...
 def direct_mapdm(intor, aosym, jkdescript,
                  dms, ncomp, atm, bas, env, vhfopt=None, cintopt=None,
-                 shls_slice=None, shls_excludes=None, out=None,
-                 optimize_sr=False):
+                 shls_slice=None, shls_excludes=None):
+    assert (aosym in ('s8', 's4', 's2ij', 's2kl', 's1',
+                      'aa4', 'a4ij', 'a4kl', 'a2ij', 'a2kl'))
+    intor = ascint3(intor)
+    c_atm = numpy.asarray(atm, dtype=numpy.int32, order='C')
+    c_bas = numpy.asarray(bas, dtype=numpy.int32, order='C')
+    c_env = numpy.asarray(env, dtype=numpy.double, order='C')
+    natm = ctypes.c_int(c_atm.shape[0])
+    nbas = ctypes.c_int(c_bas.shape[0])
+
     if isinstance(dms, numpy.ndarray) and dms.ndim == 2:
         dms = dms[numpy.newaxis,:,:]
         single_dm = True
@@ -478,41 +486,72 @@ def direct_mapdm(intor, aosym, jkdescript,
         vhfopt.set_dm(dms, atm, bas, env)
         cvhfopt = vhfopt._this
         cintopt = vhfopt._cintopt
+        cintor = getattr(libcvhf, vhfopt._intor)
+    if cintopt is None:
+        cintopt = make_cintopt(c_atm, c_bas, c_env, intor)
 
-    n_dm = len(dms)
-    dms = [numpy.asarray(dm, order='C', dtype=numpy.double) for dm in dms]
-    if isinstance(jkdescript, str):
-        jkscripts = (jkdescript,)
+    if shls_slice is None:
+        shls_slice = [0, c_bas.shape[0]] * 4
+    if shls_excludes is not None:
+        shls_excludes = _check_shls_excludes(shls_slice, shls_excludes)
+
+    ao_loc = make_loc(bas, intor)
+
+    vjk = []
+    descr_sym = [x.split('->') for x in jkdescripts]
+    fjk = (ctypes.c_void_p*(njk*n_dm))()
+    dmsptr = (ctypes.c_void_p*(njk*n_dm))()
+    vjkptr = (ctypes.c_void_p*(njk*n_dm))()
+
+    for i, (dmsym, vsym) in enumerate(descr_sym):
+        if dmsym in ('ij', 'kl', 'il', 'kj'):
+            sys.stderr.write('not support DM description %s, transpose to %s\n' %
+                             (dmsym, dmsym[::-1]))
+            dmsym = dmsym[::-1]
+        f1 = _fpointer('CVHFnr%s_%s_%s'%(aosym, dmsym, vsym))
+
+        vshape = (n_dm, ncomp) + get_dims(vsym[-2:], shls_slice, ao_loc)
+        vjk.append(numpy.empty(vshape))
+        for j in range(n_dm):
+            if dms[j].shape != get_dims(dmsym, shls_slice, ao_loc):
+                raise RuntimeError('dm[%d] shape %s is inconsistent with the '
+                                   'shls_slice shape %s' %
+                                   (j, dms[j].shape, get_dims(dmsym, shls_slice, ao_loc)))
+            dmsptr[i*n_dm+j] = dms[j].ctypes.data_as(ctypes.c_void_p)
+            vjkptr[i*n_dm+j] = vjk[i][j].ctypes.data_as(ctypes.c_void_p)
+            fjk[i*n_dm+j] = f1
+
+    if shls_excludes is None:
+        fdrv = getattr(libcvhf, 'CVHFnr_direct_drv')
+        shls_slice = (ctypes.c_int*8)(*shls_slice)
     else:
-        jkscripts = jkdescript
-    n_jk = len(jkscripts)
+        fdrv = getattr(libcvhf, 'CVHFnr_direct_ex_drv')
+        shls_slice = (ctypes.c_int*16)(*shls_slice, *shls_excludes)
+    dotsym = _INTSYMAP[aosym]
+    fdot = _fpointer('CVHFdot_nr'+dotsym)
 
     # make n_jk copies of dms
     dms = dms * n_jk
     # make n_dm copies for each jk script
     jkscripts = numpy.repeat(jkscripts, n_dm)
 
-    vjk = nr_direct_drv(intor, aosym, jkscripts, dms, ncomp, atm, bas, env,
-                        cvhfopt, cintopt, shls_slice, shls_excludes, out,
-                        optimize_sr=optimize_sr)
-    if ncomp == 1:
-        vjk = [v[0] for v in vjk]
-
-    if single_dm:
-        if isinstance(jkdescript, str):
-            vjk = vjk[0]
-    elif isinstance(jkdescript, str):
-        vjk = numpy.asarray(vjk)
-    else: # n_jk > 1
-        vjk = [numpy.asarray(vjk[i*n_dm:(i+1)*n_dm]) for i in range(n_jk)]
+    if n_dm * ncomp == 1:
+        vjk = [v[0,0] for v in vjk]
+    elif n_dm == 1:
+        vjk = [v[0,:] for v in vjk]
+    elif ncomp == 1:
+        vjk = [v[:,0] for v in vjk]
+    if isinstance(jkdescript, str):
+        vjk = vjk[0]
     return vjk
 
 # for density matrices in dms, bind each dm to a jk operator
 # jkdescript: 'ij->s1kl', 'kl->s2ij', ...
 def direct_bindm(intor, aosym, jkdescript,
                  dms, ncomp, atm, bas, env, vhfopt=None, cintopt=None,
-                 shls_slice=None, shls_excludes=None, out=None,
-                 optimize_sr=False):
+                 shls_slice=None, shls_excludes=None):
+    assert (aosym in ('s8', 's4', 's2ij', 's2kl', 's1',
+                      'aa4', 'a4ij', 'a4kl', 'a2ij', 'a2kl'))
     intor = ascint3(intor)
     if vhfopt is None:
         cvhfopt = lib.c_null_ptr()
@@ -559,8 +598,9 @@ def nr_direct_drv(intor, aosym, jkscript,
     if isinstance(jkscript, str):
         jkscripts = (jkscript,)
     else:
-        jkscripts = jkscript
-    assert len(jkscripts) == n_dm
+        jkdescripts = jkdescript
+    njk = len(jkdescripts)
+    assert (njk == n_dm)
 
     if cvhfopt is None:
         cvhfopt = lib.c_null_ptr()
@@ -603,24 +643,14 @@ def nr_direct_drv(intor, aosym, jkscript,
         vjkptr[i] = vjk[i].ctypes.data_as(ctypes.c_void_p)
         fjk[i] = f1
 
-    omega = env[gto.PTR_RANGE_OMEGA]
-    if omega < 0 and optimize_sr:
-        assert shls_excludes is None
-        drv = 'CVHFnr_sr_direct_drv'
-        shls_slice = (ctypes.c_int*8)(*shls_slice)
-    elif shls_excludes is None:
-        drv = 'CVHFnr_direct_drv'
+    if shls_excludes is None:
+        fdrv = getattr(libcvhf, 'CVHFnr_direct_drv')
         shls_slice = (ctypes.c_int*8)(*shls_slice)
     else:
-        drv = 'CVHFnr_direct_ex_drv'
+        fdrv = getattr(libcvhf, 'CVHFnr_direct_ex_drv')
         shls_slice = (ctypes.c_int*16)(*shls_slice, *shls_excludes)
-    fdrv = getattr(libcvhf, drv)
     dotsym = _INTSYMAP[aosym]
-    if omega < 0 and optimize_sr:
-        fdot = getattr(libcvhf, 'CVHFdot_sr_nr'+dotsym)
-    else:
-        fdot = getattr(libcvhf, 'CVHFdot_nr'+dotsym)
-    cintor = getattr(libcvhf, intor)
+    fdot = _fpointer('CVHFdot_nr'+dotsym)
 
     fdrv(cintor, fdot, fjk, dmsptr, vjkptr,
          ctypes.c_int(n_dm), ctypes.c_int(ncomp), shls_slice,
@@ -629,7 +659,9 @@ def nr_direct_drv(intor, aosym, jkscript,
          c_bas.ctypes.data_as(ctypes.c_void_p), nbas,
          c_env.ctypes.data_as(ctypes.c_void_p))
 
-    if isinstance(jkscript, str):
+    if ncomp == 1:
+        vjk = [v[0] for v in vjk]
+    if isinstance(jkdescript, str):
         vjk = vjk[0]
     return vjk
 

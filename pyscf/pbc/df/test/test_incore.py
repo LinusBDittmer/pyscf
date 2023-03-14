@@ -30,7 +30,7 @@ def setUpModule():
                                ]})
     numpy.random.seed(1)
     kpts = numpy.random.random((2,3))
-    dfbuilder = incore.Int3cBuilder(cell, cell, kpts)
+    dfbuilder = incore._Int3cBuilder(cell, cell, kpts)
 
 def tearDownModule():
     global cell, dfbuilder
@@ -65,7 +65,7 @@ class KnownValues(unittest.TestCase):
         numpy.random.seed(1)
         kptij_lst = numpy.random.random((1,2,3))
         a1 = incore.aux_e2(cell, auxcell, 'int3c1e_sph', aosym='s1', kptij_lst=kptij_lst)
-        self.assertAlmostEqual(lib.fp(a1), 0.039329191948685879-0.039836453846241987j, 8)
+        self.assertAlmostEqual(lib.fp(a1), 0.039329191948685879-0.039836453846241987j, 9)
 
     @unittest.skip('different to master')
     def test_fill_kk(self):
@@ -87,7 +87,7 @@ class KnownValues(unittest.TestCase):
 
     @unittest.skip('different to master')
     def test_fill_g(self):
-        dfbuilder = incore.Int3cBuilder(cell, cell, numpy.zeros((1,3)))
+        dfbuilder = incore._Int3cBuilder(cell, cell, numpy.zeros((1,3)))
         int3c = dfbuilder.gen_int3c_kernel(aosym='s2', j_only=False, return_complex=True)
         self.assertAlmostEqual(lib.fp(int3c()), 5.199528603910471, 9)
 

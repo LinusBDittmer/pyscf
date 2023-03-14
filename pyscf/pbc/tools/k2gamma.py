@@ -33,7 +33,6 @@ from pyscf import lib
 from pyscf.lib import logger
 from pyscf.pbc import tools
 from pyscf.pbc.lib.kpts import KPoints
-from pyscf.pbc.lib.kpts_helper import group_by_conj_pairs
 
 
 def kpts_to_kmesh(cell, kpts, precision=None):
@@ -43,17 +42,17 @@ def kpts_to_kmesh(cell, kpts, precision=None):
     # cell.nimgs are the upper limits for kmesh
     kmesh = np.asarray(cell.nimgs) * 2 + 1
     if precision is None:
-        precision = cell.precision * 1e2
+        precision = cell.precision
     for i in range(3):
         floats = scaled_kpts[:,i]
         uniq_floats_idx = np.unique(floats.round(6), return_index=True)[1]
         uniq_floats = floats[uniq_floats_idx]
-        # Limit the number of images to 30 in each direction
-        fracs = [Fraction(x).limit_denominator(30) for x in uniq_floats]
+        # Limit the number of images to 20 in each direction
+        fracs = [Fraction(x).limit_denominator(20) for x in uniq_floats]
         denominators = np.unique([x.denominator for x in fracs])
         common_denominator = reduce(np.lcm, denominators)
         fs = common_denominator * uniq_floats
-        if abs(uniq_floats - np.rint(fs)/common_denominator).max() < precision:
+        if abs(fs - np.rint(fs)).max() < max(precision, 1e-5):
             kmesh[i] = min(kmesh[i], common_denominator)
         if cell.verbose >= logger.DEBUG3:
             logger.debug3(cell, 'dim=%d common_denominator %d  error %g',
@@ -156,37 +155,30 @@ def mo_k2gamma(cell, mo_energy, mo_coeff, kpts, kmesh=None):
 
     E_sort_idx = np.argsort(E_g, kind='stable')
     E_g = E_g[E_sort_idx]
+    C_gamma = C_gamma[:,E_sort_idx]
+    s = scell.pbc_intor('int1e_ovlp')
+    assert (abs(reduce(np.dot, (C_gamma.conj().T, s, C_gamma))
+               - np.eye(Nmo*Nk)).max() < 1e-5)
 
-    cI_max = abs(C_gamma.imag).max(axis=0)
-    if cI_max.max() < 1e-5:
-        C_gamma = C_gamma.real[:,E_sort_idx]
-    else:
-        C_gamma = C_gamma[:,E_sort_idx]
-        s = scell.pbc_intor('int1e_ovlp')
-        # assert (abs(reduce(np.dot, (C_gamma.conj().T, s, C_gamma))
-        #            - np.eye(Nmo*Nk)).max() < 1e-5)
+    # For degenerated MOs, the transformed orbitals in super cell may not be
+    # real. Construct a sub Fock matrix in super-cell to find a proper
+    # transformation that makes the transformed MOs real.
+    E_k_degen = abs(E_g[1:] - E_g[:-1]) < 1e-3
+    degen_mask = np.append(False, E_k_degen) | np.append(E_k_degen, False)
+    if np.any(E_k_degen):
+        if abs(C_gamma[:,~degen_mask].imag).max() < 1e-4:
+            shift = min(E_g[degen_mask]) - .1
+            f = np.dot(C_gamma[:,degen_mask] * (E_g[degen_mask] - shift),
+                       C_gamma[:,degen_mask].conj().T)
+            assert (abs(f.imag).max() < 1e-4)
 
-        # For degenerated MOs, the transformed orbitals in super cell may not be
-        # real. Construct a sub Fock matrix in super-cell to find a proper
-        # transformation that makes the transformed MOs real.
-        E_k_degen = abs(E_g[1:] - E_g[:-1]) < 1e-3
-        degen_mask = np.append(False, E_k_degen) | np.append(E_k_degen, False)
-        degen_mask[cI_max < 1e-5] = False
-        if np.any(E_k_degen):
-            c_rest = C_gamma[:,~degen_mask]
-            if c_rest.size > 0 and abs(c_rest.imag).max() < 1e-4:
-                shift = min(E_g[degen_mask]) - .1
-                f = np.dot(C_gamma[:,degen_mask] * (E_g[degen_mask] - shift),
-                           C_gamma[:,degen_mask].conj().T)
-                assert (abs(f.imag).max() < 1e-4)
-
-                e, na_orb = scipy.linalg.eigh(f.real, s, type=2)
-                C_gamma = C_gamma.real
-                C_gamma[:,degen_mask] = na_orb[:, e>1e-7]
-            else:
-                f = np.dot(C_gamma * E_g, C_gamma.conj().T)
-                assert (abs(f.imag).max() < 1e-4)
-                e, C_gamma = scipy.linalg.eigh(f.real, s, type=2)
+            e, na_orb = scipy.linalg.eigh(f.real, s, type=2)
+            C_gamma = C_gamma.real
+            C_gamma[:,degen_mask] = na_orb[:, e>1e-7]
+        else:
+            f = np.dot(C_gamma * E_g, C_gamma.conj().T)
+            assert (abs(f.imag).max() < 1e-4)
+            e, C_gamma = scipy.linalg.eigh(f.real, s, type=2)
 
     s_k = cell.pbc_intor('int1e_ovlp', kpts=kpts)
     # overlap between k-point unitcell and gamma-point supercell
@@ -210,23 +202,32 @@ def k2gamma(kmf, kmesh=None):
         kmf = kmf.to_khf()
 
     def transform(mo_energy, mo_coeff, mo_occ):
-        assert not isinstance(kmf.kpts, KPoints)
-        kpts = kmf.kpts
+        if isinstance(kmf.kpts, KPoints):
+            kpts = kmf.kpts.kpts
+        else:
+            kpts = kmf.kpts
         scell, E_g, C_gamma = mo_k2gamma(kmf.cell, mo_energy, mo_coeff,
                                          kpts, kmesh)[:3]
-        E_sort_idx = np.argsort(np.hstack(mo_energy), kind='stable')
+        E_sort_idx = np.argsort(np.hstack(mo_energy))
         mo_occ = np.hstack(mo_occ)[E_sort_idx]
         return scell, E_g, C_gamma, mo_occ
 
-    mo_coeff = kmf.mo_coeff
-    mo_energy = kmf.mo_energy
-    mo_occ = kmf.mo_occ
+    if isinstance(kmf.kpts, KPoints):
+        mo_coeff = kmf.kpts.transform_mo_coeff(kmf.mo_coeff)
+        mo_energy = kmf.kpts.transform_mo_energy(kmf.mo_energy)
+        mo_occ = kmf.kpts.transform_mo_occ(kmf.mo_occ)
+    else:
+        mo_coeff = kmf.mo_coeff
+        mo_energy = kmf.mo_energy
+        mo_occ = kmf.mo_occ
 
     if isinstance(kmf, scf.khf.KRHF):
         scell, E_g, C_gamma, mo_occ = transform(mo_energy, mo_coeff, mo_occ)
+        mf = scf.RHF(scell)
     elif isinstance(kmf, scf.kuhf.KUHF):
         scell, Ea, Ca, occ_a = transform(mo_energy[0], mo_coeff[0], mo_occ[0])
         scell, Eb, Cb, occ_b = transform(mo_energy[1], mo_coeff[1], mo_occ[1])
+        mf = scf.UHF(scell)
         E_g = [Ea, Eb]
         C_gamma = [Ca, Cb]
         mo_occ = [occ_a, occ_b]

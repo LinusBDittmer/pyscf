@@ -125,7 +125,15 @@ def symm_adapted_basis(mol, gpname, orig=0, coordinates=None):
                     sodic[ir].append(c)
                 ip += degen
 
-    l_idx = ao_l_dict(mol)
+    ao_loc = mol.ao_loc_nr()
+    l_idx = {}
+    ANG_OF = 1
+    for l in range(mol._bas[:,ANG_OF].max()+1):
+        idx = [numpy.arange(ao_loc[ib], ao_loc[ib+1])
+               for ib in numpy.where(mol._bas[:,ANG_OF] == l)[0]]
+        if idx:
+            l_idx[l] = numpy.hstack(idx)
+
     Ds = _momentum_rotation_matrices(mol, coordinates)
     so = []
     irrep_ids = []
@@ -141,17 +149,6 @@ def symm_adapted_basis(mol, gpname, orig=0, coordinates=None):
             so.append(c_ir)
 
     return so, irrep_ids
-
-def ao_l_dict(mol):
-    ao_loc = mol.ao_loc_nr()
-    l_idx = {}
-    ANG_OF = 1
-    for l in range(mol._bas[:,ANG_OF].max()+1):
-        idx = [numpy.arange(ao_loc[ib], ao_loc[ib+1])
-               for ib in numpy.where(mol._bas[:,ANG_OF] == l)[0]]
-        if idx:
-            l_idx[l] = numpy.hstack(idx)
-    return l_idx
 
 def _momentum_rotation_matrices(mol, axes):
     '''Cache the rotation matrices for each angular momentum'''
@@ -484,8 +481,6 @@ def linearmole_irrep_id2symb(gpname, irrep_id):
         else:
             l = abs(linearmole_irrep2momentum(irrep_id))
             n = irrep_id % 10
-            if n >= 4:
-                raise PointGroupSymmetryError(f'Incorrect Coov irrep {irrep_id}')
             if n % 2:
                 xy = 'y'
             else:
@@ -493,6 +488,15 @@ def linearmole_irrep_id2symb(gpname, irrep_id):
             return 'E%d%s' % (l, xy)
     else:
         raise PointGroupSymmetryError(f'Incorrect cylindrical symmetry group {gpname}')
+
+def linearmole_irrep2momentum(irrep_id):
+    if irrep_id % 10 in (0, 1, 5, 4):
+        l = irrep_id // 10 * 2
+    else:
+        l = irrep_id // 10 * 2 + 1
+    if irrep_id % 10 in (1, 3, 4, 6):  # Ey
+        l *= -1
+    return l
 
 def linearmole_irrep2momentum(irrep_id):
     if irrep_id % 10 in (0, 1, 5, 4):

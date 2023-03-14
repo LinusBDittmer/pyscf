@@ -71,54 +71,23 @@ def ft_aopair(mol, Gv, shls_slice=None, aosym='s1', b=numpy.eye(3),
             intor.startswith('GTO_ft_ovlp')):
             fill = 'fill_s1hermi'
         else:
-            fill = 'fill_s1'
+            fill = getattr(libcgto, 'GTO_ft_fill_s1')
         ni = ao_loc[shls_slice[1]] - ao_loc[shls_slice[0]]
         nj = ao_loc[shls_slice[3]] - ao_loc[shls_slice[2]]
-        shape = (nj, ni, nGv)
+        shape = (comp, ni, nj, nGv)
     else:
         fill = 'fill_s2'
         i0 = ao_loc[shls_slice[0]]
         i1 = ao_loc[shls_slice[1]]
         nij = i1*(i1+1)//2 - i0*(i0+1)//2
-        shape = (nij, nGv)
-    if comp != 1:
-        shape = (comp,) + shape
-
-    if return_complex:
-        fill = 'GTO_ft_z' + fill
-        dtype = numpy.complex128
-    else:
-        if fill == 'fill_s2':
-            raise NotImplementedError
-        fill = 'GTO_ft_d' + fill
-        dtype = numpy.double
-        shape = (2,) + shape
-
-    if out is None:
-        out = numpy.zeros(shape, dtype=dtype)
-    else:
-        out = numpy.ndarray(shape, dtype=dtype, buffer=out)
-        out[:] = 0
-
-    if aosym == 's1':
-        out = numpy.rollaxis(out, -2, -3)
-        out = numpy.rollaxis(out, -1, -3)
-    else:
-        out = numpy.rollaxis(out, -1, -2)
-    if nGv == 0:
-        return out
+        shape = (comp, nij, nGv)
+    mat = numpy.ndarray(shape, order='C', dtype=numpy.complex128, buffer=buf)
+    mat[:] = 0
 
     fn = libcgto.GTO_ft_fill_drv
     intor = getattr(libcgto, intor)
     eval_gz = getattr(libcgto, eval_gz)
-    fill = getattr(libcgto, fill)
     phase = 0
-    if ovlp_mask is None:
-        nish = shls_slice[1] - shls_slice[0]
-        njsh = shls_slice[3] - shls_slice[2]
-        ovlp_mask = numpy.ones((nish,njsh), dtype=numpy.int8, order='F')
-    else:
-        ovlp_mask = numpy.asarray(ovlp_mask, dtype=numpy.int8, order='F')
 
     fn(intor, eval_gz, fill,
        out.ctypes.data_as(ctypes.c_void_p),
@@ -130,7 +99,11 @@ def ft_aopair(mol, Gv, shls_slice=None, aosym='s1', b=numpy.eye(3),
        mol._atm.ctypes.data_as(ctypes.c_void_p), ctypes.c_int(mol.natm),
        mol._bas.ctypes.data_as(ctypes.c_void_p), ctypes.c_int(mol.nbas),
        mol._env.ctypes.data_as(ctypes.c_void_p))
-    return out
+
+    mat = numpy.rollaxis(mat, -1, 1)
+    if comp == 1:
+        mat = mat[0]
+    return mat
 
 
 # gxyz is the index for Gvbase
@@ -185,11 +158,6 @@ def ft_ao(mol, Gv, shls_slice=None, b=numpy.eye(3),
     shape = (ni, nGv)
     mat = numpy.zeros(shape, order='C', dtype=numpy.complex128)
     phase = 0
-    if nGv == 0:
-        return mat
-
-    nish = shls_slice[1] - shls_slice[0]
-    ovlp_mask = numpy.ones(nish, dtype=numpy.int8)
 
     shls_slice = shls_slice + (mol.nbas, mol.nbas+1)
     fn(intor, eval_gz, fill,
