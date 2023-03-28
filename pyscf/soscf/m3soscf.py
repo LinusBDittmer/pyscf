@@ -41,7 +41,7 @@ class M3SOSCF:
         mem_scale: float
             Influence of past iterations on the currently generated new points if mem_size > 1. Default is strongly
             reconmmended.
-        initGuess: String or ndarray
+        init_guess: String or ndarray
             Initial Guess for the SCF iteration. Either one of the string aliases supported by pyscf.scf.SCF or an
             appropriately sized custom matrix can be used.
         stepSize: float
@@ -141,10 +141,10 @@ class M3SOSCF:
         self.convergence_thresh = 10**-convergence
 
 
-        if not type(initGuess) is numpy.ndarray:
-            self.initDensityMatrixWithRothaanStep(self.mf.get_init_guess(key=initGuess))
+        if not type(init_guess) is numpy.ndarray:
+            self.initDensityMatrixWithRothaanStep(self.mf.get_init_guess(key=init_guess))
         else:
-            self.initDensityMatrixDirectly(initGuess)
+            self.initDensityMatrixDirectly(init_guess)
 
 
 
@@ -232,7 +232,7 @@ class M3SOSCF:
             self.convergene_thresh = convergence
         if init_scattering >= 0:
             self.init_scattering = init_scattering
-        if type(trust_scale_range) is type((0.0, 0.0, 0.0)):
+        if isinstance(trust_scale_range, list):
             self.subconverger_rm.trust_scale_range = trust_scale_range
         if mem_scale >= 0:
             self.subconverger_rm.mem_scale = mem_scale
@@ -253,7 +253,7 @@ class M3SOSCF:
 
         if type(dm0) is numpy.ndarray:
             self.initDensityMatrixDirectly(dm0)
-        elif type(dm0) is type(None):
+        elif type(dm0) is NoneType:
             pass
         else:
             raise Exception('Illegal initial matrix: dm0 is not a numpy.ndarray.')
