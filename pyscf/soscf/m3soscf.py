@@ -492,7 +492,7 @@ class M3SOSCF:
             log.info(f"Spin-Square:              {ss[0]}")
             log.info(f"Multiplicity:             {ss[1]}")
 
-        if not self.converged:
+        if not self.mf.converged:
             return
 
         irreps = ['-'] * len(self.mf.mo_coeff[0])
