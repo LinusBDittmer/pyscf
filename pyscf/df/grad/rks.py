@@ -81,10 +81,11 @@ def get_veff(ks_grad, mol=None, dm=None):
         omega, alpha, hyb = ni.rsh_and_hybrid_coeff(mf.xc, spin=mol.spin)
         vj, vk = ks_grad.get_jk(mol, dm)
         if ks_grad.auxbasis_response:
-            vk_aux = vk.aux * hyb
+            vk.aux *= hyb
         vk[:] *= hyb # Don't erase the .aux tags!
-        if abs(omega) > 1e-10:  # For range separated Coulomb operator
-            raise NotImplementedError
+        if omega != 0:  # For range separated Coulomb operator
+            # TODO: replaced with vk_sr which is numerically more stable for
+            # inv(int2c2e)
             vk_lr = ks_grad.get_k(mol, dm, omega=omega)
             vk[:] += vk_lr * (alpha - hyb)
             if ks_grad.auxbasis_response:

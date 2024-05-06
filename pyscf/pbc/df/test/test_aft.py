@@ -372,18 +372,6 @@ class KnownValues(unittest.TestCase):
         self.assertAlmostEqual(abs(v0 - v3).max(), 0, 8)
         self.assertAlmostEqual(lib.fp(v0) - (-9.558999451044691-0.0030483827024668946j), 0, 8)
 
-    def test_aft_get_pp_high_cost(self):
-        cell = pgto.Cell()
-        cell.verbose = 0
-        cell.atom = 'C 0 0 0; C 1 1 1'
-        cell.a = numpy.diag([4, 4, 4])
-        cell.basis = 'gth-szv'
-        cell.pseudo = 'gth-pade'
-        cell.mesh = [20]*3
-        cell.build()
-        v1 = aft.AFTDF(cell).get_pp([.25]*3)
-        self.assertAlmostEqual(lib.fp(v1), -0.0533131779366407-0.11895124492447073j, 9)
-
     def test_aft_get_ao_eri(self):
         df0 = fft.FFTDF(cell1)
         df = aft.AFTDF(cell1)
@@ -432,7 +420,7 @@ class KnownValues(unittest.TestCase):
         ref = odf0.get_eri()
         eri0000 = odf.get_eri(compact=True)
         self.assertTrue(eri0000.dtype == numpy.double)
-        self.assertTrue(np.allclose(eri0000, ref, atol=1e-6, rtol=1e-6))
+        self.assertAlmostEqual(abs(eri0000-ref).max(), 0, 7)
         self.assertAlmostEqual(lib.fp(eri0000), 0.23714016293926865, 8)
 
     def test_get_eri_gamma1(self):

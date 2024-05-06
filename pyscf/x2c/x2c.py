@@ -807,6 +807,7 @@ class X2C1E_GSCF(_X2C_SCF):
         obj = self.undo_x2c().to_gpu().x2c1e()
         return lib.to_gpu(self, obj)
 
+
 def _uncontract_mol(mol, xuncontract=None, exp_drop=0.2):
     '''mol._basis + uncontracted steep functions'''
     pmol, contr_coeff = mol.decontract_basis(atoms=xuncontract)

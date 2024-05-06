@@ -563,6 +563,7 @@ class NumInt2C(lib.StreamObject, numint.LibXCMixin):
                 rho.append(self.eval_rho2(mol, ao, mo_coeff, mo_occ, mask, xctype,
                                           with_lapl))
             rho = np.concatenate(rho,axis=-1)
+            assert rho.dtype == np.double
             if self.collinear[0] == 'm':  # mcol
                 eval_xc = self.mcfun_eval_xc_adapter(xc_code)
             else:
@@ -575,6 +576,52 @@ class NumInt2C(lib.StreamObject, numint.LibXCMixin):
             dm_b = dm[nao:,nao:].real.copy('C')
             ni = self._to_numint1c()
             hermi = 1
+            rhoa = []
+            rhob = []
+            for ao, mask, weight, coords \
+                    in ni.block_loop(mol, grids, nao, ao_deriv, max_memory):
+                # rhoa and rhob must be real
+                rhoa.append(ni.eval_rho(mol, ao, dm_a, mask, xctype, hermi, with_lapl))
+                rhob.append(ni.eval_rho(mol, ao, dm_b, mask, xctype, hermi, with_lapl))
+            rho = np.stack([np.concatenate(rhoa,axis=-1), np.concatenate(rhob,axis=-1)])
+            assert rho.dtype == np.double
+            vxc, fxc = ni.eval_xc_eff(xc_code, rho, deriv=2, xctype=xctype)[1:3]
+        return rho, vxc, fxc
+
+    def cache_xc_kernel1(self, mol, grids, xc_code, dm, spin=0, max_memory=2000):
+        '''Compute the 0th order density, Vxc and fxc.  They can be used in TDDFT,
+        DFT hessian module etc.
+        '''
+        xctype = self._xc_type(xc_code)
+        if xctype in ('GGA', 'MGGA'):
+            ao_deriv = 1
+        else:
+            ao_deriv = 0
+        n2c = dm.shape[0]
+        nao = n2c // 2
+
+        if self.collinear[0] in ('m', 'n'):  # mcol or ncol
+            hermi = 1 # rho must be real. We need to assume dm hermitian
+            with_lapl = False
+            rho = []
+            for ao, mask, weight, coords \
+                    in self.block_loop(mol, grids, nao, ao_deriv, max_memory):
+                rho.append(self.eval_rho1(mol, ao, dm, mask, xctype, hermi, with_lapl))
+            rho = np.concatenate(rho,axis=-1)
+            assert rho.dtype == np.double
+            if self.collinear[0] == 'm':  # mcol
+                eval_xc = self.mcfun_eval_xc_adapter(xc_code)
+            else:
+                eval_xc = self.eval_xc_eff
+            vxc, fxc = eval_xc(xc_code, rho, deriv=2, xctype=xctype)[1:3]
+        else:
+            # rhoa and rhob must be real. We need to assume dm hermitian
+            hermi = 1
+            # TODO: test if dm[:nao,:nao].imag == 0
+            dm_a = dm[:nao,:nao].real.copy('C')
+            dm_b = dm[nao:,nao:].real.copy('C')
+            ni = self._to_numint1c()
+            with_lapl = True
             rhoa = []
             rhob = []
             for ao, mask, weight, coords \
@@ -669,35 +716,8 @@ class NumInt2C(lib.StreamObject, numint.LibXCMixin):
     eval_xc_eff = _eval_xc_eff
     mcfun_eval_xc_adapter = mcfun_eval_xc_adapter
 
-    block_loop = numint._block_loop
-
-    def _gen_rho_evaluator(self, mol, dms, hermi=0, with_lapl=False, grids=None):
-        if getattr(dms, 'mo_coeff', None) is not None:
-            #TODO: test whether dm.mo_coeff matching dm
-            mo_coeff = dms.mo_coeff
-            mo_occ = dms.mo_occ
-            if isinstance(dms, np.ndarray) and dms.ndim == 2:
-                mo_coeff = [mo_coeff]
-                mo_occ = [mo_occ]
-            nao = mo_coeff[0].shape[0]
-            ndms = len(mo_occ)
-            def make_rho(idm, ao, non0tab, xctype):
-                return self.eval_rho2(mol, ao, mo_coeff[idm], mo_occ[idm],
-                                      non0tab, xctype, with_lapl)
-        else:
-            if isinstance(dms, np.ndarray) and dms.ndim == 2:
-                dms = [dms]
-            if hermi != 1 and dms[0].dtype == np.double:
-                # (D + D.T)/2 because eval_rho computes 2*(|\nabla i> D_ij <j|) instead of
-                # |\nabla i> D_ij <j| + |i> D_ij <\nabla j| for efficiency when dm is real
-                dms = [(dm+dm.T)*.5 for dm in dms]
-                hermi = 1
-            nao = dms[0].shape[0]
-            ndms = len(dms)
-            def make_rho(idm, ao, non0tab, xctype):
-                return self.eval_rho(mol, ao, dms[idm], non0tab, xctype,
-                                     hermi, with_lapl)
-        return make_rho, ndms, nao
+    block_loop = numint.NumInt.block_loop
+    _gen_rho_evaluator = numint.NumInt._gen_rho_evaluator
 
     def _to_numint1c(self):
         '''Converts to the associated class to handle collinear systems'''

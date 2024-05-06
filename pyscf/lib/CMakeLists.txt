@@ -67,19 +67,10 @@ if(EXISTS "${PROJECT_SOURCE_DIR}/cmake.arch.inc")
 endif()
 
 if (NOT BLAS_LIBRARIES)
-enable_language(Fortran)
-#set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fopenmp")
-#set(BLA_VENDOR "OpenBLAS")
-#set(BLA_F95 ON)
+#enable_language(Fortran)
 find_package(BLAS)
-message(STATUS "Blas libs: ${BLAS_LIBRARIES}")
-message(STATUS "Blas found: ${BLAS_FOUND}")
-message(STATUS "Blas95 libs: ${BLAS95_LIBRARIES}")
-message(STATUS "Blas95 found: ${BLAS95_FOUND}")
 check_function_exists(ffsll HAVE_FFS)
 endif()
-
-set(BLAS_LIBRARIES "/usr/lib/x86_64-linux-gnu/openblas/libblas.so.3")
 
 if (NOT BLAS_LIBRARIES)
   message(FATAL_ERROR "A required library with BLAS API not found.")
@@ -183,7 +174,7 @@ if(BUILD_LIBCINT)
 
   ExternalProject_Add(libcint
     GIT_REPOSITORY ${LIBCINT_GIT}
-    GIT_TAG v5.1.8
+    GIT_TAG ${LIBCINT_VERSION}
     PREFIX ${PROJECT_BINARY_DIR}/deps
     INSTALL_DIR ${PROJECT_SOURCE_DIR}/deps
     CMAKE_ARGS -DCMAKE_BUILD_TYPE=RELEASE

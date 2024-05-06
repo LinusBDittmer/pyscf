@@ -43,6 +43,7 @@ class CDIIS(lib.diis.DIIS):
         self.rollback = 0
         self.space = 8
         self.Corth = Corth
+        self.damp = 0
 
     def update(self, s, d, f, *args, **kwargs):
         errvec = get_err_vec(s, d, f, self.Corth)
@@ -67,13 +68,13 @@ SCFDIIS = SCF_DIIS = DIIS = CDIIS
 def get_err_vec_orig(s, d, f):
     '''error vector = SDF - FDS'''
     if isinstance(f, numpy.ndarray) and f.ndim == 2:
-        sdf = reduce(numpy.dot, (s,d,f))
+        sdf = reduce(lib.dot, (s,d,f))
         errvec = (sdf.conj().T - sdf).ravel()
 
     elif isinstance(f, numpy.ndarray) and f.ndim == 3 and s.ndim == 3:
         errvec = []
         for i in range(f.shape[0]):
-            sdf = reduce(numpy.dot, (s[i], d[i], f[i]))
+            sdf = reduce(lib.dot, (s[i], d[i], f[i]))
             errvec.append((sdf.conj().T - sdf).ravel())
         errvec = numpy.hstack(errvec)
 
@@ -87,17 +88,25 @@ def get_err_vec_orig(s, d, f):
 
 def get_err_vec_orth(s, d, f, Corth):
     '''error vector in orthonormal basis = C.T.conj() (SDF - FDS) C'''
+    # Symmetry information to reduce numerical error in DIIS (issue #1524)
+    orbsym = getattr(Corth, 'orbsym', None)
+    if orbsym is not None:
+        sym_forbid = orbsym[:,None] != orbsym
+
     if isinstance(f, numpy.ndarray) and f.ndim == 2:
-        sdf = reduce(numpy.dot, (s,d,f))
-        errvec = Corth.conj().T.dot(sdf.conj().T - sdf).dot(Corth).ravel()
+        sdf = reduce(lib.dot, (Corth.conj().T, s, d, f, Corth))
+        if orbsym is not None:
+            sdf[sym_forbid] = 0
+        errvec = (sdf.conj().T - sdf).ravel()
 
     elif isinstance(f, numpy.ndarray) and f.ndim == 3 and s.ndim == 3:
         errvec = []
         for i in range(f.shape[0]):
-            sdf = reduce(numpy.dot, (s[i], d[i], f[i]))
-            errvec.append(
-                Corth[i].conj().T.dot(sdf.conj().T - sdf).dot(Corth[i]).ravel())
-        errvec = numpy.vstack(errvec).ravel()
+            sdf = reduce(lib.dot, (Corth[i].conj().T, s[i], d[i], f[i], Corth[i]))
+            if orbsym is not None:
+                sdf[sym_forbid] = 0
+            errvec.append((sdf.conj().T - sdf).ravel())
+        errvec = numpy.hstack(errvec)
 
     elif f.ndim == s.ndim+1 and f.shape[0] == 2:  # for UHF
         errvec = numpy.hstack([
@@ -117,7 +126,7 @@ class EDIIS(lib.diis.DIIS):
     '''SCF-EDIIS
     Ref: JCP 116, 8255 (2002); DOI:10.1063/1.1470195
     '''
-    def update(self, s, d, f, mf, h1e, vhf):
+    def update(self, s, d, f, mf, h1e, vhf, *args, **kwargs):
         if self._head >= self.space:
             self._head = 0
         if not self._buffer:
@@ -236,4 +245,3 @@ def adiis_minimize(ds, fs, idnewest):
     res = scipy.optimize.minimize(costf, numpy.ones(nx), method='BFGS',
                                   jac=grad, tol=1e-9)
     return res.fun, (res.x**2)/(res.x**2).sum()
-

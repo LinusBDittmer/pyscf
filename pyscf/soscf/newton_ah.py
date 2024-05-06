@@ -935,145 +935,18 @@ def newton(mf):
     if isinstance(mf, _CIAH_SOSCF):
         return mf
 
-    assert (isinstance(mf, hf.SCF))
-    if mf.__doc__ is None:
-        mf_doc = ''
-    else:
-        mf_doc = mf.__doc__
+    assert isinstance(mf, hf.SCF)
 
-    if isinstance(mf, rohf.ROHF):
-        class SecondOrderROHF(_CIAH_SOSCF, mf.__class__):
-            __doc__ = mf_doc + _CIAH_SOSCF.__doc__
-            gen_g_hop = gen_g_hop_rohf
-        return SecondOrderROHF(mf)
-
-    elif isinstance(mf, uhf.UHF):
-        class SecondOrderUHF(_CIAH_SOSCF, mf.__class__):
-            __doc__ = mf_doc + _CIAH_SOSCF.__doc__
-
-            gen_g_hop = gen_g_hop_uhf
-
-            def update_rotate_matrix(self, dx, mo_occ, u0=1, mo_coeff=None):
-                occidxa = mo_occ[0] > 0
-                occidxb = mo_occ[1] > 0
-                viridxa = ~occidxa
-                viridxb = ~occidxb
-
-                nmo = len(occidxa)
-                dr = numpy.zeros((2,nmo,nmo), dtype=dx.dtype)
-                uniq = numpy.array((viridxa[:,None] & occidxa,
-                                    viridxb[:,None] & occidxb))
-                dr[uniq] = dx
-                dr = dr - dr.conj().transpose(0,2,1)
-
-                if WITH_EX_EY_DEGENERACY:
-                    mol = self._scf.mol
-                    if mol.symmetry and mol.groupname in ('SO3', 'Dooh', 'Coov'):
-                        orbsyma, orbsymb = uhf_symm.get_orbsym(mol, mo_coeff)
-                        if mol.groupname == 'SO3':
-                            _force_SO3_degeneracy_(dr[0], orbsyma)
-                            _force_SO3_degeneracy_(dr[1], orbsymb)
-                        else:
-                            _force_Ex_Ey_degeneracy_(dr[0], orbsyma)
-                            _force_Ex_Ey_degeneracy_(dr[1], orbsymb)
-
-                if isinstance(u0, int) and u0 == 1:
-                    return numpy.asarray((expmat(dr[0]), expmat(dr[1])))
-                else:
-                    return numpy.asarray((numpy.dot(u0[0], expmat(dr[0])),
-                                          numpy.dot(u0[1], expmat(dr[1]))))
-
-            def rotate_mo(self, mo_coeff, u, log=None):
-                mo = numpy.asarray((numpy.dot(mo_coeff[0], u[0]),
-                                    numpy.dot(mo_coeff[1], u[1])))
-                if self._scf.mol.symmetry:
-                    orbsym = uhf_symm.get_orbsym(self._scf.mol, mo_coeff)
-                    mo = lib.tag_array(mo, orbsym=orbsym)
-                return mo
-
-            def spin_square(self, mo_coeff=None, s=None):
-                if mo_coeff is None:
-                    mo_coeff = (self.mo_coeff[0][:,self.mo_occ[0]>0],
-                                self.mo_coeff[1][:,self.mo_occ[1]>0])
-                if getattr(self, '_scf', None) and self._scf.mol != self.mol:
-                    s = self._scf.get_ovlp()
-                return self._scf.spin_square(mo_coeff, s)
-
-            def kernel(self, mo_coeff=None, mo_occ=None, dm0=None):
-                if isinstance(mo_coeff, numpy.ndarray) and mo_coeff.ndim == 2:
-                    mo_coeff = (mo_coeff, mo_coeff)
-                if isinstance(mo_occ, numpy.ndarray) and mo_occ.ndim == 1:
-                    mo_occ = (numpy.asarray(mo_occ >0, dtype=numpy.double),
-                              numpy.asarray(mo_occ==2, dtype=numpy.double))
-                return _CIAH_SOSCF.kernel(self, mo_coeff, mo_occ, dm0)
-
-        return SecondOrderUHF(mf)
-
-    elif isinstance(mf, scf.ghf.GHF):
-        class SecondOrderGHF(_CIAH_SOSCF, mf.__class__):
-            __doc__ = mf_doc + _CIAH_SOSCF.__doc__
-
-            gen_g_hop = gen_g_hop_ghf
-
-            def update_rotate_matrix(self, dx, mo_occ, u0=1, mo_coeff=None):
-                dr = hf.unpack_uniq_var(dx, mo_occ)
-
-                if WITH_EX_EY_DEGENERACY:
-                    mol = self._scf.mol
-                    if mol.symmetry and mol.groupname in ('SO3', 'Dooh', 'Coov'):
-                        orbsym = scf.ghf_symm.get_orbsym(mol, mo_coeff)
-                        if mol.groupname == 'SO3':
-                            _force_SO3_degeneracy_(dr, orbsym)
-                        else:
-                            _force_Ex_Ey_degeneracy_(dr, orbsym)
-                return numpy.dot(u0, expmat(dr))
-
-            def rotate_mo(self, mo_coeff, u, log=None):
-                mo = numpy.dot(mo_coeff, u)
-                if self._scf.mol.symmetry:
-                    orbsym = scf.ghf_symm.get_orbsym(self._scf.mol, mo_coeff)
-                    mo = lib.tag_array(mo, orbsym=orbsym)
-                return mo
-        return SecondOrderGHF(mf)
-
-    elif isinstance(mf, scf.dhf.RDHF):
-        class SecondOrderRDHF(_CIAH_SOSCF, mf.__class__):
-            __doc__ = mf_doc + _CIAH_SOSCF.__doc__
-
-            gen_g_hop = gen_g_hop_dhf
-
-            def update_rotate_matrix(self, dx, mo_occ, u0=1, mo_coeff=None):
-                nmo = mo_occ.size
-                nocc = numpy.count_nonzero(mo_occ)
-                nvir = nmo - nocc
-                dx = dx.reshape(nvir, nocc)
-                dx_aa = dx[::2,::2]
-                dr_aa = hf.unpack_uniq_var(dx_aa.ravel(), mo_occ[::2])
-                u = numpy.zeros((nmo, nmo), dtype=dr_aa.dtype)
-                # Allows only the rotation within the up-up space and down-down space
-                u[::2,::2] = u[1::2,1::2] = expmat(dr_aa)
-                return numpy.dot(u0, u)
-
-            def rotate_mo(self, mo_coeff, u, log=None):
-                mo = numpy.dot(mo_coeff, u)
-                return mo
-        return SecondOrderRDHF(mf)
-
-    elif isinstance(mf, scf.dhf.DHF):
-        class SecondOrderDHF(_CIAH_SOSCF, mf.__class__):
-            __doc__ = mf_doc + _CIAH_SOSCF.__doc__
-
-            gen_g_hop = gen_g_hop_dhf
-
-            def update_rotate_matrix(self, dx, mo_occ, u0=1, mo_coeff=None):
-                dr = hf.unpack_uniq_var(dx, mo_occ)
-                return numpy.dot(u0, expmat(dr))
-
-            def rotate_mo(self, mo_coeff, u, log=None):
-                mo = numpy.dot(mo_coeff, u)
-                return mo
-        return SecondOrderDHF(mf)
-
+    if mf.istype('ROHF'):
+        cls = _SecondOrderROHF
+    elif mf.istype('UHF'):
+        cls = _SecondOrderUHF
+    elif mf.istype('GHF'):
+        cls = _SecondOrderGHF
+    elif mf.istype('RDHF'):
+        cls = _SecondOrderRDHF
+    elif mf.istype('DHF'):
+        cls = _SecondOrderDHF
     else:
         cls = _SecondOrderRHF
     return lib.set_class(cls(mf), (cls, mf.__class__))

@@ -274,15 +274,11 @@ class KGHF(khf.KSCF):
         return x2c1e_gscf(self)
     x2c = x2c1e
 
-    def x2c1e(self):
-        '''X2C with spin-orbit coupling effects in spin-orbital basis'''
-        from pyscf.pbc.x2c.x2c1e import x2c1e_gscf
-        return x2c1e_gscf(self)
-
-    x2c = x2c1e
-    sfx2c1e = khf.KSCF.sfx2c1e
-    stability = None
-    nuc_grad_method = None
+    def to_ks(self, xc='HF'):
+        '''Convert to RKS object.
+        '''
+        from pyscf.pbc import dft
+        return self._transfer_attrs_(dft.KGKS(self.cell, self.kpts, xc=xc))
 
 del (WITH_META_LOWDIN, PRE_ORTH_METHOD)
 

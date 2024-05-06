@@ -49,7 +49,8 @@ def contract_1e(h1e, fcivec, norb, nelec, link_index=None):
 
     na, nlinka = link_indexa.shape[:2]
     nb, nlinkb = link_indexb.shape[:2]
-    assert (fcivec.size == na*nb)
+    assert fcivec.size == na*nb
+    assert fcivec.dtype == h1e.dtype == numpy.float64
     ci1 = numpy.zeros_like(fcivec)
 
     libfci.FCIcontract_a_1e_nosym(h1e.ctypes.data_as(ctypes.c_void_p),
@@ -98,18 +99,33 @@ def contract_2e(eri, fcivec, norb, nelec, link_index=None):
     link_indexa, link_indexb = _unpack(norb, nelec, link_index)
     na, nlinka = link_indexa.shape[:2]
     nb, nlinkb = link_indexb.shape[:2]
-    assert (fcivec.size == na*nb)
-    ci1 = numpy.empty_like(fcivec)
+    assert fcivec.size == na*nb
+    if fcivec.dtype == eri.dtype == numpy.float64:
+        fcivec = numpy.asarray(fcivec, order='C')
+        eri = numpy.asarray(eri, order='C')
+        ci1 = numpy.empty_like(fcivec)
+        libfci.FCIcontract_2es1(eri.ctypes.data_as(ctypes.c_void_p),
+                                fcivec.ctypes.data_as(ctypes.c_void_p),
+                                ci1.ctypes.data_as(ctypes.c_void_p),
+                                ctypes.c_int(norb),
+                                ctypes.c_int(na), ctypes.c_int(nb),
+                                ctypes.c_int(nlinka), ctypes.c_int(nlinkb),
+                                link_indexa.ctypes.data_as(ctypes.c_void_p),
+                                link_indexb.ctypes.data_as(ctypes.c_void_p))
+        return ci1.view(direct_spin1.FCIvector)
 
-    libfci.FCIcontract_2es1(eri.ctypes.data_as(ctypes.c_void_p),
-                            fcivec.ctypes.data_as(ctypes.c_void_p),
-                            ci1.ctypes.data_as(ctypes.c_void_p),
-                            ctypes.c_int(norb),
-                            ctypes.c_int(na), ctypes.c_int(nb),
-                            ctypes.c_int(nlinka), ctypes.c_int(nlinkb),
-                            link_indexa.ctypes.data_as(ctypes.c_void_p),
-                            link_indexb.ctypes.data_as(ctypes.c_void_p))
-    return ci1.view(direct_spin1.FCIvector)
+    ciR = numpy.asarray(fcivec.real, order='C')
+    ciI = numpy.asarray(fcivec.imag, order='C')
+    eriR = numpy.asarray(eri.real, order='C')
+    eriI = numpy.asarray(eri.imag, order='C')
+    link_index = (link_indexa, link_indexb)
+    outR  = contract_2e(eriR, ciR, norb, nelec, link_index=link_index)
+    outR -= contract_2e(eriI, ciI, norb, nelec, link_index=link_index)
+    outI  = contract_2e(eriR, ciI, norb, nelec, link_index=link_index)
+    outI += contract_2e(eriI, ciR, norb, nelec, link_index=link_index)
+    out = outR.astype(numpy.complex128)
+    out.imag = outI
+    return outR
 
 def absorb_h1e(h1e, eri, norb, nelec, fac=1):
     '''Modify 2e Hamiltonian to include 1e Hamiltonian contribution.
@@ -135,7 +151,12 @@ def energy(h1e, eri, fcivec, norb, nelec, link_index=None):
     ci1 = contract_2e(h2e, fcivec, norb, nelec, link_index)
     return numpy.dot(fcivec.reshape(-1), ci1.reshape(-1))
 
-make_hdiag = direct_spin1.make_hdiag
+def make_hdiag(h1e, eri, norb, nelec, compress=False):
+    if h1e.dtype == numpy.complex128:
+        h1e = h1e.real.copy()
+    if eri.dtype == numpy.complex128:
+        eri = eri.real.copy()
+    return direct_spin1.make_hdiag(h1e, eri, norb, nelec, compress)
 
 
 class FCISolver(direct_spin1.FCISolver):

@@ -753,8 +753,6 @@ class SCF(mol_hf.SCF):
                    **kwargs):
         if cell is None:
             cell = self.cell
-        if dm is None:
-            dm = self.make_rdm1()
         rho = kwargs.pop('rho', None)
         if rho is None:
             rho = self.get_rho(dm)
@@ -868,14 +866,8 @@ class SCF(mol_hf.SCF):
                 df_method = J if 'DF' in J else K
                 self.with_df = getattr(df, df_method)(self.cell, self.kpts)
 
-        # For nuclear attraction
-        if ('RS' in J or 'RS' in K) and not self.with_df:
-            self.with_df = df.GDF(self.cell, self.kpt)
-
-        if J == 'RS' or K == 'RS':
-            if not gamma_point(self.kpt):
-                raise NotImplementedError('Single k-point must be gamma point')
-            self.rsjk = RangeSeparatedJKBuilder(self.cell, self.kpt)
+        if 'RS' in J or 'RS' in K:
+            self.rsjk = RangeSeparatedJKBuilder(self.cell, self.kpts)
             self.rsjk.verbose = self.verbose
 
         # For nuclear attraction

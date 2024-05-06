@@ -175,7 +175,6 @@ def make_rdm2(mp, t2=None, ao_repr=False):
 
 class GMP2(mp2.MP2):
     def __init__(self, mf, frozen=None, mo_coeff=None, mo_occ=None):
-        assert (isinstance(mf, scf.ghf.GHF))
         mp2.MP2.__init__(self, mf, frozen, mo_coeff, mo_occ)
 
     def ao2mo(self, mo_coeff=None):

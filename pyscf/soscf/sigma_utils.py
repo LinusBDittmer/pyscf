@@ -12,7 +12,6 @@ def vec_to_matrix(vector, assm=None):
         assm = get_vec_matrix_indices(s)
     mat = numpy.zeros((s, s))
     mat[assm[:,0],assm[:,1]] = vector
-
     return mat - mat.conj().T
 
 def matrix_to_vec(matrix, assm=None):
@@ -30,7 +29,4 @@ def get_vec_matrix_indices(size):
             assignment[counter,0] = i
             assignment[counter,1] = j
             counter += 1
-
-
     return assignment
-

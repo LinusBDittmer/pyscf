@@ -63,7 +63,8 @@ def contract_1e(f1e, fcivec, norb, nelec, link_index=None):
     link_indexa, link_indexb = _unpack(norb, nelec, link_index)
     na, nlinka = link_indexa.shape[:2]
     nb, nlinkb = link_indexb.shape[:2]
-    assert (fcivec.size == na*nb)
+    assert fcivec.size == na*nb
+    assert fcivec.dtype == f1e.dtype == numpy.float64
     f1e_tril = lib.pack_tril(f1e)
     ci1 = numpy.zeros_like(fcivec)
     libfci.FCIcontract_a_1e(f1e_tril.ctypes.data_as(ctypes.c_void_p),
@@ -127,7 +128,8 @@ def contract_2e(eri, fcivec, norb, nelec, link_index=None):
     link_indexa, link_indexb = _unpack(norb, nelec, link_index)
     na, nlinka = link_indexa.shape[:2]
     nb, nlinkb = link_indexb.shape[:2]
-    assert (fcivec.size == na*nb)
+    assert fcivec.size == na*nb
+    assert fcivec.dtype == eri.dtype == numpy.float64
     ci1 = numpy.empty_like(fcivec)
 
     libfci.FCIcontract_2e_spin1(eri.ctypes.data_as(ctypes.c_void_p),
@@ -439,8 +441,7 @@ def _get_init_guess(na, nb, nroots, hdiag, nelec):
     neleca, nelecb = _unpack_nelec(nelec)
     if neleca == nelecb and na == nb:
         hdiag = hdiag.reshape(na, na)
-        idx = numpy.arange(na)
-        addrs = numpy.argpartition(hdiag[idx[:,None]>=idx], nroots-1)[:nroots]
+        addrs = numpy.argpartition(lib.pack_tril(hdiag), nroots-1)[:nroots]
         for addr in addrs:
             addra = (int)((2*addr+.25)**.5 - .5 + 1e-7)
             addrb = addr - addra*(addra+1)//2
@@ -524,50 +525,57 @@ def kernel_ms1(fci, h1e, eri, norb, nelec, ci0=None, link_index=None,
 
     nelec = _unpack_nelec(nelec, fci.spin)
     assert (0 <= nelec[0] <= norb and 0 <= nelec[1] <= norb)
-    link_indexa, link_indexb = _unpack(norb, nelec, link_index)
-    na = link_indexa.shape[0]
-    nb = link_indexb.shape[0]
+
+    hdiag = fci.make_hdiag(h1e, eri, norb, nelec, compress=False).ravel()
+    num_dets = hdiag.size
+    pspace_size = min(num_dets, pspace_size)
+    addr = [0]
+    pw = pv = None
+    if pspace_size > 0 and norb < 64:
+        addr, h0 = fci.pspace(h1e, eri, norb, nelec, hdiag, pspace_size)
+        pw, pv = fci.eig(h0)
+        pspace_size = len(addr)
+
+    if getattr(fci, 'sym_allowed_idx', None):
+        # Remove symmetry forbidden elements
+        sym_idx = numpy.hstack(fci.sym_allowed_idx)
+        civec_size = sym_idx.size
+    else:
+        sym_idx = None
+        civec_size = num_dets
 
     if max_memory < civec_size*6*8e-6:
         log.warn('Not enough memory for FCI solver. '
-                 'The minimal requirement is %.0f MB', na*nb*60e-6)
+                 'The minimal requirement is %.0f MB', civec_size*60e-6)
 
-    hdiag = fci.make_hdiag(h1e, eri, norb, nelec)
-    nroots = min(hdiag.size, nroots)
+    if pspace_size >= civec_size and ci0 is None and not davidson_only:
+        if nroots > 1:
+            nroots = min(civec_size, nroots)
+            civec = numpy.empty((nroots,civec_size))
+            civec[:,addr] = pv[:,:nroots].T
+            return pw[:nroots]+ecore, civec
+        elif pspace_size == 1 or abs(pw[0]-pw[1]) > 1e-12:
+            # Check degeneracy. Degenerated wfn may break point group symmetry.
+            # Davidson iteration with a proper initial guess can avoid this problem.
+            civec = numpy.empty(civec_size)
+            civec[addr] = pv[:,0]
+            return pw[0]+ecore, civec
+    pw = pv = h0 = None
 
-    try:
-        addr, h0 = fci.pspace(h1e, eri, norb, nelec, hdiag, max(pspace_size,nroots))
-        if pspace_size > 0:
-            pw, pv = fci.eig(h0)
-        else:
-            pw = pv = None
-
-        if pspace_size >= na*nb and ci0 is None and not davidson_only:
-            # The degenerated wfn can break symmetry.  The davidson iteration with proper
-            # initial guess doesn't have this issue
-            if na*nb == 1:
-                return pw[0]+ecore, pv[:,0].reshape(1,1).view(FCIvector)
-            elif nroots > 1:
-                civec = numpy.empty((nroots,na*nb))
-                civec[:,addr] = pv[:,:nroots].T
-                return pw[:nroots]+ecore, [c.reshape(na,nb).view(FCIvector) for c in civec]
-            elif abs(pw[0]-pw[1]) > 1e-12:
-                civec = numpy.empty((na*nb))
-                civec[addr] = pv[:,0]
-                return pw[0]+ecore, civec.reshape(na,nb).view(FCIvector)
-    except NotImplementedError:
-        addr = [0]
-        pw = pv = None
-
-    precond = fci.make_precond(hdiag, pw, pv, addr)
+    if sym_idx is None:
+        precond = fci.make_precond(hdiag)
+    else:
+        precond = fci.make_precond(hdiag[sym_idx])
 
     h2e = fci.absorb_h1e(h1e, eri, norb, nelec, .5)
     if hop is None:
+        cpu0 = [logger.process_clock(), logger.perf_counter()]
         def hop(c):
-            hc = fci.contract_2e(h2e, c, norb, nelec, (link_indexa,link_indexb))
+            hc = fci.contract_2e(h2e, c, norb, nelec, link_index)
+            cpu0[:] = log.timer_debug1('contract_2e', *cpu0)
             return hc.ravel()
 
-    if ci0 is None:
+    def init_guess():
         if callable(getattr(fci, 'get_init_guess', None)):
             return fci.get_init_guess(norb, nelec, nroots, hdiag)
         else:
@@ -605,10 +613,7 @@ def kernel_ms1(fci, h1e, eri, norb, nelec, ci0=None, link_index=None,
                        max_cycle=max_cycle, max_space=max_space, nroots=nroots,
                        max_memory=max_memory, verbose=log, follow_state=True,
                        tol_residual=tol_residual, **kwargs)
-    if nroots > 1:
-        return e+ecore, [ci.reshape(na,nb).view(FCIvector) for ci in c]
-    else:
-        return e+ecore, c.reshape(na,nb).view(FCIvector)
+    return e+ecore, c
 
 def make_pspace_precond(hdiag, pspaceig, pspaceci, addr, level_shift=0):
     # precondition with pspace Hamiltonian, CPL, 169, 463

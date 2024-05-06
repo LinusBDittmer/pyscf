@@ -131,6 +131,10 @@ def eval_gto(cell, eval_name, coords, comp=None, kpts=None, kpt=None,
 
     if rcut is None:
         rcut = _estimate_rcut(cell)
+    if Ls is None:
+        Ls = get_lattice_Ls(cell, rcut=rcut.max())
+        Ls = Ls[np.argsort(lib.norm(Ls, axis=1), kind='stable')]
+    expLk = np.exp(1j * np.asarray(np.dot(Ls, kpts_lst.T), order='C'))
 
     with cell.with_integral_screen(cutoff):
         drv = getattr(libpbc, eval_name)

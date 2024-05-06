@@ -380,9 +380,9 @@ frac_occ = frac_occ_
 
 def dynamic_occ_(mf, tol=1e-3):
     '''
-    Dyanmically adjust the occupancy to avoid degeneracy between HOMO and LUMO
+    Dynamically adjust the occupancy to avoid degeneracy between HOMO and LUMO
     '''
-    assert (isinstance(mf, hf.RHF))
+    assert mf.istype('RHF')
     old_get_occ = mf.get_occ
     def get_occ(mo_energy, mo_coeff=None):
         mol = mf.mol
@@ -412,7 +412,8 @@ def dynamic_level_shift_(mf, factor=1.):
     old_get_fock = mf.get_fock
     mf._last_e = None
     def get_fock(h1e, s1e, vhf, dm, cycle=-1, diis=None,
-                 diis_start_cycle=None, level_shift_factor=None, damp_factor=None):
+                 diis_start_cycle=None, level_shift_factor=None, damp_factor=None,
+                 fock_last=None):
         if cycle > 0 or diis is not None:
             if 'exc' in mf.scf_summary:  # DFT
                 e_tot = mf.scf_summary['e1'] + mf.scf_summary['coul'] + mf.scf_summary['exc']
@@ -434,7 +435,7 @@ def float_occ_(mf):
     Determine occupation of alpha and beta electrons based on energy spectrum
     '''
     from pyscf.scf import uhf
-    assert (isinstance(mf, uhf.UHF))
+    assert mf.istype('UHF')
     def get_occ(mo_energy, mo_coeff=None):
         mol = mf.mol
         ee = numpy.sort(numpy.hstack(mo_energy))
@@ -783,7 +784,7 @@ def convert_to_uhf(mf, out=None, remove_df=False):
     '''
     from pyscf import scf
     from pyscf import dft
-    assert (isinstance(mf, hf.SCF))
+    assert (isinstance(mf, scf.hf.SCF))
 
     logger.debug(mf, 'Converting %s to UHF', mf.__class__)
 
@@ -791,7 +792,7 @@ def convert_to_uhf(mf, out=None, remove_df=False):
         raise NotImplementedError
 
     elif out is not None:
-        assert (isinstance(out, scf.uhf.UHF))
+        assert out.istype('UHF')
         out = _update_mf_without_soscf(mf, out, remove_df)
 
     elif mf.istype('UHF'):
@@ -883,7 +884,7 @@ def convert_to_rhf(mf, out=None, remove_df=False):
     '''
     from pyscf import scf
     from pyscf import dft
-    assert (isinstance(mf, hf.SCF))
+    assert (isinstance(mf, scf.hf.SCF))
 
     logger.debug(mf, 'Converting %s to RHF', mf.__class__)
 
@@ -896,7 +897,7 @@ def convert_to_rhf(mf, out=None, remove_df=False):
         raise NotImplementedError
 
     elif out is not None:
-        assert (isinstance(out, scf.hf.RHF))
+        assert out.istype('RHF')
         out = _update_mf_without_soscf(mf, out, remove_df)
 
     elif (mf.istype('RHF') or
@@ -950,12 +951,12 @@ def convert_to_ghf(mf, out=None, remove_df=False):
     '''
     from pyscf import scf
     from pyscf import dft
-    assert (isinstance(mf, hf.SCF))
+    assert (isinstance(mf, scf.hf.SCF))
 
     logger.debug(mf, 'Converting %s to GHF', mf.__class__)
 
     if out is not None:
-        assert (isinstance(out, scf.ghf.GHF))
+        assert out.istype('GHF')
         out = _update_mf_without_soscf(mf, out, remove_df)
 
     elif mf.istype('GHF'):
@@ -1214,7 +1215,7 @@ def fast_newton(mf, mo_coeff=None, mo_occ=None, dm0=None,
 #    def mf_kernel(*args, **kwargs):
 #        logger.warn(mf, "fast_newton is a wrap function to quickly setup and call Newton solver. "
 #                    "There's no need to call kernel function again for fast_newton.")
-#        del (mf.kernel)  # warn once and remove circular depdence
+#        del (mf.kernel)  # warn once and remove circular dependence
 #        return mf.e_tot
 #    mf.kernel = mf_kernel
     return mf

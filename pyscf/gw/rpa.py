@@ -417,5 +417,18 @@ if __name__ == '__main__':
     e_corr_0 = rpa.kernel(cderi_ov=v_ov)
 
     print ('RPA e_tot, e_hf, e_corr = ', rpa.e_tot, rpa.e_hf, rpa.e_corr)
-    assert (abs(rpa.e_corr- -0.30783004035780076) < 1e-6)
-    assert (abs(rpa.e_tot- -76.26428191794182) < 1e-6)
+    assert (abs(rpa.e_corr - -0.307830040357800) < 1e-6)
+    assert (abs(rpa.e_tot  - -76.26651423730257) < 1e-6)
+
+    # Another implementation of direct RPA N^6
+    v_ov = np.array(v_ov["cderi_ov"])
+    a = e_ov * np.eye(nocc * nvir) + 2 * np.dot(v_ov.T, v_ov)
+    b = 2 * np.dot(v_ov.T, v_ov)
+    apb = a + b
+    amb = a - b
+    c = np.dot(amb, apb)
+    e_corr_1 = 0.5 * np.trace(
+        scipy.linalg.sqrtm(c) - a
+    )
+
+    assert abs(e_corr_0 - e_corr_1) < 1e-8

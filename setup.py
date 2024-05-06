@@ -28,25 +28,6 @@ def get_version():
     raise ValueError("Version string not found")
 VERSION = get_version()
 
-EXTRAS = {
-    'geomopt': ['pyberny>=0.6.2', 'geometric>=0.9.7.2', 'pyscf-qsdopt'],
-    'dftd3': ['pyscf-dftd3'],
-    #'dmrgscf': ['pyscf-dmrgscf'],
-    'doci': ['pyscf-doci'],
-    'icmpspt': ['pyscf-icmpspt'],
-    'properties': ['pyscf-properties'],
-    'semiempirical': ['pyscf-semiempirical'],
-    'shciscf': ['pyscf-shciscf'],
-    'cppe': ['cppe'],
-    'pyqmc': ['pyqmc'],
-    'mcfun': ['mcfun>=0.2.1'],
-}
-EXTRAS['all'] = [p for extras in EXTRAS.values() for p in extras]
-# extras which should not be installed by "all" components
-EXTRAS['cornell_shci'] = ['pyscf-cornell-shci']
-EXTRAS['nao'] = ['pyscf-nao']
-EXTRAS['fciqmcscf'] = ['pyscf-fciqmc']
-EXTRAS['tblis'] = ['pyscf-tblis']
 
 def get_platform():
     from distutils.util import get_platform
@@ -122,26 +103,10 @@ if sys.platform == 'darwin':
 
 setup(
     version=VERSION,
-    description=DESCRIPTION,
-    long_description_content_type="text/markdown",
-    long_description=DESCRIPTION,
-    url=URL,
-    download_url=DOWNLOAD_URL,
-    license=LICENSE,
-    classifiers=CLASSIFIERS,
-    author=AUTHOR,
-    author_email=AUTHOR_EMAIL,
-    platforms=PLATFORMS,
     #package_dir={'pyscf': 'pyscf'},  # packages are under directory pyscf
     #include *.so *.dat files. They are now placed in MANIFEST.in
     #package_data={'': ['*.so', '*.dylib', '*.dll', '*.dat']},
     include_package_data=True,  # include everything in source control
     packages=find_packages(exclude=['*test*', '*examples*']),
-    # The ext_modules placeholder is to ensure build_ext getting initialized
-    ext_modules=[Extension('pyscf_lib_placeholder', [])],
-    cmdclass={'build_ext': CMakeBuildExt},
-    install_requires=['numpy>=1.13,!=1.16,!=1.17',
-                      _scipy_version,
-                      'h5py>=2.7'],
-    extras_require=EXTRAS,
+    cmdclass={'build_py': CMakeBuildPy},
 )

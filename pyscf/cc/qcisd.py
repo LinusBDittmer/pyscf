@@ -351,29 +351,8 @@ class QCISD(CCSDBase):
     energy = energy
     _add_vvvv = _add_vvvv
     update_amps = update_amps
-
-    def kernel(self, t1=None, t2=None, eris=None):
-        return self.qcisd(t1, t2, eris)
-    def qcisd(self, t1=None, t2=None, eris=None):
-        assert (self.mo_coeff is not None)
-        assert (self.mo_occ is not None)
-
-        if self.verbose >= logger.WARN:
-            self.check_sanity()
-        self.dump_flags()
-
-        self.e_hf = self.get_e_hf()
-
-        if eris is None:
-            eris = self.ao2mo(self.mo_coeff)
-
-        self.converged, self.e_corr, self.t1, self.t2 = \
-                kernel(self, eris, t1, t2, max_cycle=self.max_cycle,
-                       tol=self.conv_tol, tolnormt=self.conv_tol_normt,
-                       verbose=self.verbose)
-        self._finalize()
-        return self.e_corr, self.t1, self.t2
-
+    kernel = CCSDBase.ccsd
+    ccsd = lib.invalid_method('ccsd')
     as_scanner = as_scanner
 
     def qcisd_t(self, t1=None, t2=None, eris=None):
@@ -382,6 +361,5 @@ class QCISD(CCSDBase):
         if t2 is None: t2 = self.t2
         if eris is None: eris = self.ao2mo(self.mo_coeff)
         return qcisd_t.kernel(self, eris, t1, t2, self.verbose)
-
 
 RQCISD = QCISD

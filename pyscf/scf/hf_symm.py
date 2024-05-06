@@ -215,7 +215,7 @@ def _symmetrize_canonicalization_(mf, mo_energy, mo_coeff, s):
             es.append(mo_energy[idx])
             cs.append(numpy.dot(mol.symm_orb[i], u[:,idx]))
         es = numpy.hstack(es).round(7)
-        idx = numpy.argsort(es, kind='mergesort')
+        idx = numpy.argsort(es, kind='stable')
         assert (numpy.allclose(es[idx], esub.round(7)))
         mo_coeff[:,degidx] = numpy.hstack(cs)[:,idx]
     return mo_coeff
@@ -301,7 +301,7 @@ def eig(mf, h, s, symm_orb=None, irrep_id=None):
     mol = mf.mol
     if symm_orb is None or irrep_id is None:
         if not mol.symmetry:
-            return mf._eigh(h, s)
+            raise RuntimeError('mol.symmetry not enabled')
         symm_orb = mol.symm_orb
         irrep_id = mol.irrep_id
 
@@ -340,14 +340,15 @@ def eig(mf, h, s, symm_orb=None, irrep_id=None):
     return e, c
 
 def get_orbsym(mol, mo_coeff, s=None, check=False, symm_orb=None, irrep_id=None):
+    if getattr(mo_coeff, 'orbsym', None) is not None:
+        return mo_coeff.orbsym
+
     if symm_orb is None or irrep_id is None:
         symm_orb = mol.symm_orb
         irrep_id = mol.irrep_id
     if mo_coeff is None:
         orbsym = numpy.hstack([[ir] * symm_orb[i].shape[1]
                                for i, ir in enumerate(irrep_id)])
-    elif getattr(mo_coeff, 'orbsym', None) is not None:
-        orbsym = mo_coeff.orbsym
     else:
         orbsym = symm.label_orb_symm(mol, irrep_id, symm_orb,
                                      mo_coeff, s, check)
@@ -525,7 +526,7 @@ class SymAdaptedRHF(hf.RHF):
                             idx[self.mo_occ==0][v_sort]))
         self.mo_energy = self.mo_energy[idx]
         self.mo_occ = self.mo_occ[idx]
-        orbsym = self.get_orbsym(self.mo_coeff, self.get_ovlp())
+        orbsym = self.get_orbsym(self.mo_coeff)
         orbsym = orbsym[idx]
         degen_mapping = None
         if self.mol.groupname in ('Dooh', 'Coov'):
@@ -665,7 +666,7 @@ class SymAdaptedROHF(rohf.ROHF):
         if mo_energy is None: mo_energy = self.mo_energy
         mol = self.mol
         if not mol.symmetry:
-            return rohf.ROHF.get_occ(self, mo_energy, mo_coeff)
+            raise RuntimeError('mol.symmetry not enabled')
 
         if getattr(mo_energy, 'mo_ea', None) is not None:
             mo_ea = mo_energy.mo_ea
@@ -793,7 +794,7 @@ class SymAdaptedROHF(rohf.ROHF):
         else:
             self.mo_energy = self.mo_energy[idx]
         self.mo_occ = self.mo_occ[idx]
-        orbsym = self.get_orbsym(self.mo_coeff, self.get_ovlp())
+        orbsym = self.get_orbsym(self.mo_coeff)
         orbsym = orbsym[idx]
         degen_mapping = None
         if self.mol.groupname in ('Dooh', 'Coov'):

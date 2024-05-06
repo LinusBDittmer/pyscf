@@ -118,6 +118,7 @@ def _strs2occslst(strs, norb):
     return numpy.asarray(occslst, dtype=numpy.int32).view(OIndexList)
 
 def _occslst2strs(occslst):
+    assert isinstance(occslst[0], OIndexList)
     occslst = numpy.asarray(occslst)
     na, nelec = occslst.shape
     strs = numpy.zeros(na, dtype=numpy.int64)
@@ -258,7 +259,7 @@ def gen_cre_str_index(orb_list, nelec):
     Returns [[cre, -, target_address, parity], ...]
     '''
     norb = len(orb_list)
-    assert (nelec < norb)
+    assert nelec < norb
     strs = make_strings(orb_list, nelec)
     if isinstance(strs, OIndexList):
         raise NotImplementedError('System with 64 orbitals or more')
@@ -280,12 +281,9 @@ def gen_des_str_index(orb_list, nelec):
     For given string str0, index[str0] is nvir x 4 array.  Each entry
     [--,i(des),str1,sign] means starting from str0, annihilating i, to get str1.
 
-    strs = make_strings(orb_list, nelec)
-    t = [progate1e(s) for s in strs.astype(numpy.int64)]
-    return numpy.array(t, dtype=numpy.int32)
-def gen_des_str_index_o1(orb_list, nelec):
-    '''C implementation of gen_des_str_index function'''
-    assert (nelec > 0)
+    Returns [[-, des, target_address, parity], ...]
+    '''
+    assert nelec > 0
     strs = make_strings(orb_list, nelec)
     if isinstance(strs, OIndexList):
         raise NotImplementedError('System with 64 orbitals or more')
@@ -343,17 +341,19 @@ def parity(string0, string1):
     else:
         return (-1) ** (count_bit1(string0 & (-ss)))
 
-def addr2str_o0(norb, nelec, addr):
-    assert (num_strings(norb, nelec) > addr)
-    if addr == 0 or nelec == norb or nelec == 0:
-        return (1 << nelec) - 1   # ..0011..11
+def addr2str(norb, nelec, addr):
+    '''Convert CI determinant address to string'''
+    if norb >= 64:
+        raise NotImplementedError('norb >= 64')
+    max_addr = num_strings(norb, nelec)
+    assert max_addr > addr
+
+    if max_addr < 2**31:
+        return addrs2str(norb, nelec, [addr])[0]
     else:
-        for i in reversed(range(norb)):
-            addrcum = num_strings(i, nelec)
-            if addrcum <= addr:
-                return (1 << i) | addr2str_o0(i, nelec-1, addr-addrcum)
-def addr2str_o1(norb, nelec, addr):
-    assert (num_strings(norb, nelec) > addr)
+        return _addr2str(norb, nelec, addr)
+
+def _addr2str(norb, nelec, addr):
     if addr == 0 or nelec == norb or nelec == 0:
         return (1 << nelec) - 1   # ..0011..11
 
@@ -389,9 +389,23 @@ def str2addr(norb, nelec, string):
         string = int(string, 2)
     else:
         assert (bin(string).count('1') == nelec)
-    libfci.FCIstr2addr.restype = ctypes.c_int
-    return libfci.FCIstr2addr(ctypes.c_int(norb), ctypes.c_int(nelec),
-                              ctypes.c_ulonglong(string))
+
+    if num_strings(norb, nelec) < 2**31:
+        libfci.FCIstr2addr.restype = ctypes.c_int
+        return libfci.FCIstr2addr(ctypes.c_int(norb), ctypes.c_int(nelec),
+                                  ctypes.c_ulonglong(string))
+    return _str2addr(norb, nelec, string)
+
+def _str2addr(norb, nelec, string):
+    if norb <= nelec or nelec == 0:
+        return 0
+    addr = 0
+    for orbital_id in reversed(range(norb)):
+        if (1 << orbital_id) & string:
+            addr += num_strings(orbital_id, nelec)
+            nelec -= 1
+    return addr
+
 def strs2addr(norb, nelec, strings):
     '''Convert a list of string to CI determinant address'''
     if norb >= 64:
@@ -413,7 +427,7 @@ def sub_addrs(norb, nelec, orbital_indices, sub_nelec=0):
     indices. The size of the returned addresses is equal to the number of
     determinants of (norb, nelec) system.
     '''
-    assert (norb < 63)
+    assert norb < 64
     if sub_nelec == 0:
         strs = make_strings(orbital_indices, nelec)
         return strs2addr(norb, nelec, strs)

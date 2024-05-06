@@ -180,6 +180,63 @@ class KnownValues(unittest.TestCase):
         v1[:6,:6] += v0
         self.assertAlmostEqual(abs(v1 - vref).max(), 0, 12)
 
+    def test_direct_sr_vhf(self):
+        numpy.random.seed(1)
+        dm = numpy.random.random((nao,nao))
+        omega = 0.15
+        with mol.with_short_range_coulomb(omega):
+            ref = _vhf.direct(dm, mol._atm, mol._bas, mol._env, optimize_sr=False)
+            ref = numpy.array(ref)
+
+        vhfopt = _VHFOpt(mol, 'int2e', omega=omega)
+        vhfopt.init_cvhf_direct(mol)
+        with mol.with_short_range_coulomb(omega):
+            vjk = _vhf.direct(dm, mol._atm, mol._bas, mol._env, optimize_sr=True)
+            vjk = numpy.array(vjk)
+
+        self.assertAlmostEqual(abs(ref - vjk).max(), 0, 12)
+        self.assertAlmostEqual(lib.fp(vjk), 25.317344717490613, 12)
+
+MIN_CUTOFF = 1e-44
+libcvhf = _vhf.libcvhf
+
+class _VHFOpt(_vhf._VHFOpt):
+    def __init__(self, mol, intor=None, prescreen='CVHFnoscreen',
+                 qcondname=None, dmcondname=None, direct_scf_tol=1e-14,
+                 omega=None):
+        assert omega is not None
+        with mol.with_short_range_coulomb(omega):
+            _vhf._VHFOpt.__init__(self, mol, intor, prescreen, qcondname, dmcondname)
+        self.omega = omega
+        self._this.direct_scf_cutoff = numpy.log(direct_scf_tol)
+
+    def init_cvhf_direct(self, mol, intor=None, qcondname=None):
+        nbas = mol.nbas
+        q_cond = numpy.empty((6,nbas,nbas), dtype=numpy.float32)
+        ao_loc = mol.ao_loc
+        cintopt = self._cintopt
+        with mol.with_short_range_coulomb(self.omega):
+            libcvhf.CVHFsetnr_sr_direct_scf(
+                libcvhf.int2e_sph, cintopt,
+                q_cond.ctypes.data_as(ctypes.c_void_p),
+                ao_loc.ctypes.data_as(ctypes.c_void_p),
+                mol._atm.ctypes.data_as(ctypes.c_void_p), ctypes.c_int(mol.natm),
+                mol._bas.ctypes.data_as(ctypes.c_void_p), ctypes.c_int(mol.nbas),
+                mol._env.ctypes.data_as(ctypes.c_void_p))
+
+        self._q_cond = q_cond
+        logq_cond = q_cond.ctypes.data_as(ctypes.c_void_p)
+        self._this.q_cond = logq_cond
+
+    def set_dm(self, dm, atm=None, bas=None, env=None):
+        assert dm[0].ndim == 2
+        ao_loc = self.mol.ao_loc_nr()
+        dm_cond = [lib.condense('NP_absmax', d, ao_loc, ao_loc) for d in dm]
+        dm_cond = numpy.max(dm_cond, axis=0)
+        dm_cond += MIN_CUTOFF  # to remove divide-by-zero error
+        self._dm_cond = numpy.asarray(dm_cond, order='C', dtype=np.float32)
+        self._this.dm_cond = self._dm_cond.ctypes.data_as(ctypes.c_void_p)
+
 
 if __name__ == "__main__":
     print("Full Tests for _vhf")

@@ -38,14 +38,13 @@ def get_gth_pp(mol):
         v = incore.aux_e2(mol, fakemol, 'int3c2e', aosym='s2', comp=1)
         vpploc = np.einsum('...i,i->...', v, -charges[atmlst])
 
-    # To compute the rest part of GTH PP, mimic the mol with a 0D cell.
-    cell_0D = mol.view(Cell)
-    cell_0D.dimension = 0
-    cell_0D.a = numpy.eye(3)
-    cell_0D.mesh = [0] * 3
-    vpploc += pp_int.get_pp_loc_part2(cell_0D).real
-    vpploc += pp_int.get_pp_nl(cell_0D).real
-    return vpploc
+    intors = ('int3c2e', 'int3c1e', 'int3c1e_r2_origk',
+              'int3c1e_r4_origk', 'int3c1e_r6_origk')
+    for cn in range(1, 5):
+        fakemol = pp_int.fake_cell_vloc(mol, cn)
+        if fakemol.nbas > 0:
+            v = incore.aux_e2(mol, fakemol, intors[cn], aosym='s2', comp=1)
+            vpploc += np.einsum('...i->...', v)
 
     if isinstance(vpploc, np.ndarray):
         vpploc = lib.unpack_tril(vpploc)

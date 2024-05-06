@@ -26,7 +26,7 @@ import ctypes
 from pyscf import gto
 from pyscf import lib
 from pyscf.lib import logger
-from pyscf.scf import _vhf
+from pyscf.scf import hf, _vhf
 from pyscf.gto.mole import is_au
 
 
@@ -440,7 +440,20 @@ class GradientsBase(lib.StreamObject):
         to be split into alpha,beta in DF-ROHF subclass'''
         return lib.tag_array (dm, mo_coeff=mo_coeff, mo_occ=mo_occ)
 
-class Gradients(GradientsMixin):
+    # to_gpu can be reused only when __init__ still takes mf
+    def to_gpu(self):
+        mf = self.base.to_gpu()
+        from importlib import import_module
+        mod = import_module(self.__module__.replace('pyscf', 'gpu4pyscf'))
+        cls = getattr(mod, self.__class__.__name__)
+        obj = cls(mf)
+        return obj
+
+# export the symbol GradientsMixin for backward compatibility.
+# GradientsMixin should be dropped in the future.
+GradientsMixin = GradientsBase
+
+class Gradients(GradientsBase):
     '''Non-relativistic restricted Hartree-Fock gradients'''
 
     def get_veff(self, mol=None, dm=None):

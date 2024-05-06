@@ -28,10 +28,15 @@ from pyscf import lib
 from pyscf import gto
 from pyscf.lib import logger
 from pyscf.lib import zdotNN, zdotCN, zdotNC
+from pyscf.pbc import gto as pbcgto
+from pyscf.gto.ft_ao import ft_aopair
+from pyscf.pbc.df import ft_ao
 from pyscf.pbc.df.df_jk import (_format_dms, _format_kpts_band, _format_jks,
                                 _ewald_exxdiv_for_G0)
-from pyscf.pbc.lib.kpts_helper import is_zero, gamma_point
-
+from pyscf.pbc.lib.kpts_helper import (is_zero, group_by_conj_pairs,
+                                       kk_adapted_iter)
+from pyscf.pbc.tools import k2gamma
+from pyscf.pbc.df.incore import libpbc
 
 def get_j_kpts(mydf, dm_kpts, hermi=1, kpts=numpy.zeros((1,3)), kpts_band=None):
     if kpts_band is not None:

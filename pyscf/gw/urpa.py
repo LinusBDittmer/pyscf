@@ -222,5 +222,9 @@ if __name__ == '__main__':
     rpa.verbose = 5
     rpa.kernel()
     print ('RPA e_tot, e_hf, e_corr = ', rpa.e_tot, rpa.e_hf, rpa.e_corr)
-    assert (abs(rpa.e_corr- -0.20980646878974454) < 1e-6)
-    assert (abs(rpa.e_tot- -99.49292565821425) < 1e-6)
+    assert (abs(rpa.e_corr - -0.20980646878974454) < 1e-6)
+    assert (abs(rpa.e_tot  - -99.49455969299747) < 1e-6)
+
+
+
+

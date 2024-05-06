@@ -124,6 +124,28 @@ class KnownValues(unittest.TestCase):
         self.assertAlmostEqual(abs(eri0123.imag.sum()), 4.9887958509e-5, 7)
         self.assertAlmostEqual(lib.fp(eri0123), 0.9695261296288074-0.33222740818370966j, 8)
 
+    def test_rsdf_build(self):
+        cell = pgto.M(a=numpy.eye(3)*1.8,
+                      atom='''Li   0.   0.    0.; H    0.   .5   1.2 ''',
+                      basis={'Li': [[0, [5., 1.]], [0, [.6, 1.]], [1, [3., 1.]]],
+                             'H': [[0, [.3, 1.]]]})
+        auxbasis = {'Li': [[0, [5., 1.]], [0, [1.5, 1.]], [1, [.5, 1.]], [2, [2.5, 1.]]],
+                    'H':  [[0, [2., 1.]]]}
+        numpy.random.seed(2)
+        dm = numpy.random.random([cell.nao]*2)
+
+        gdf = df.GDF(cell)
+        gdf.auxbasis = auxbasis
+        jref, kref = gdf.get_jk(dm)
+
+        gdf = rsdf.RSGDF(cell)
+        gdf.auxbasis = auxbasis
+        vj, vk = gdf.get_jk(dm)
+
+        self.assertAlmostEqual(abs(vj - jref).max(), 0, 7)
+        self.assertAlmostEqual(abs(vk - kref).max(), 0, 7)
+        self.assertAlmostEqual(lib.fp(vj), 2.383648833459583, 7)
+        self.assertAlmostEqual(lib.fp(vk), 1.553598328349400, 7)
 
 if __name__ == '__main__':
     print("Full Tests for rsdf")

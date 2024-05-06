@@ -95,7 +95,7 @@ class KnownValues(unittest.TestCase):
 
     def test_state_average_mix(self):
         mc = mcscf.UCASSCF(m, 5, (4, 2))
-        cis1 = copy.copy(mc.fcisolver)
+        cis1 = mc.fcisolver.copy()
         cis1.spin = 0
         mc = mcscf.addons.state_average_mix(mc, [cis1, mc.fcisolver], [0.5, 0.5])
         mc.kernel()

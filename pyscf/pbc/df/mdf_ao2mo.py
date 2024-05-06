@@ -173,8 +173,4 @@ def ao2mo_7d(mydf, mo_coeff_kpts, kpts=None, factor=1, out=None):
         for uniq_id, kpt in enumerate(uniq_kpts):
             process(uniq_id, kpt, fswap)
 
-    with lib.H5TmpFile() as fswap:
-        for uniq_id, kpt in enumerate(uniq_kpts):
-            process(uniq_id, kpt, fswap)
-
     return out

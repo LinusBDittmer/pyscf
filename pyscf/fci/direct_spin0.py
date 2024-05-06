@@ -59,7 +59,8 @@ def contract_1e(f1e, fcivec, norb, nelec, link_index=None):
         # Handle computability. link_index should be (nparray, nparray)
         link_index = link_index[0]
     na, nlink = link_index.shape[:2]
-    assert (fcivec.size == na**2)
+    assert fcivec.size == na**2
+    assert fcivec.dtype == f1e.dtype == numpy.float64
     ci1 = numpy.empty_like(fcivec)
     f1e_tril = lib.pack_tril(f1e)
     libfci.FCIcontract_1e_spin0(f1e_tril.ctypes.data_as(ctypes.c_void_p),
@@ -92,7 +93,8 @@ def contract_2e(eri, fcivec, norb, nelec, link_index=None):
         # Handle computability. link_index should be (nparray, nparray)
         link_index = link_index[0]
     na, nlink = link_index.shape[:2]
-    assert (fcivec.size == na**2)
+    assert fcivec.size == na**2
+    assert fcivec.dtype == eri.dtype == numpy.float64
     ci1 = numpy.empty((na,na))
 
     libfci.FCIcontract_2e_spin0(eri.ctypes.data_as(ctypes.c_void_p),
@@ -240,13 +242,27 @@ def kernel_ms0(fci, h1e, eri, norb, nelec, ci0=None, link_index=None,
         max_memory = fci.max_memory - lib.current_memory()[0]
     log = logger.new_logger(fci, verbose)
 
-    assert (fci.spin is None or fci.spin == 0)
-    assert (0 <= numpy.sum(nelec) <= norb*2)
+    nelec = direct_spin1._unpack_nelec(nelec, fci.spin)
+    assert (0 <= nelec[0] <= norb and 0 <= nelec[1] <= norb)
 
-    link_index = _unpack(norb, nelec, link_index)
-    h1e = numpy.ascontiguousarray(h1e)
-    eri = numpy.ascontiguousarray(eri)
-    na = link_index.shape[0]
+    hdiag = fci.make_hdiag(h1e, eri, norb, nelec, compress=True)
+    num_dets = hdiag.size
+    pspace_size = min(num_dets, pspace_size)
+    nroots = min(num_dets, nroots)
+    na = cistring.num_strings(norb, nelec[0])
+    addr = [0]
+    pw = pv = None
+    if pspace_size > 0 and norb < 64:
+        addr, h0 = fci.pspace(h1e, eri, norb, nelec, hdiag, pspace_size)
+        pw, pv = fci.eig(h0)
+
+    if getattr(fci, 'sym_allowed_idx', None):
+        # Remove symmetry forbidden elements
+        sym_idx = numpy.hstack(fci.sym_allowed_idx)
+        civec_size = sym_idx.size
+    else:
+        sym_idx = None
+        civec_size = num_dets
 
     if max_memory < num_dets*6*8e-6:
         log.warn('Not enough memory for FCI solver. '
@@ -268,48 +284,13 @@ def kernel_ms0(fci, h1e, eri, norb, nelec, ci0=None, link_index=None,
         if nroots == 1:
             return e[0]+ecore, civec[0]
         else:
-            pw = pv = None
+            return numpy.array(e)+ecore, civec
+    pw = pv = h0 = None
 
-        if pspace_size >= na*na and ci0 is None and not davidson_only:
-            # The degenerated wfn can break symmetry.  The davidson iteration with proper
-            # initial guess doesn't have this issue
-            if na*na == 1:
-                return pw[0]+ecore, pv[:,0].reshape(1,1).view(direct_spin1.FCIvector)
-            elif nroots > 1:
-                civec = numpy.empty((nroots,na*na))
-                civec[:,addr] = pv[:,:nroots].T
-                civec = civec.reshape(nroots,na,na)
-                try:
-                    return (pw[:nroots]+ecore,
-                            [_check_(ci).view(direct_spin1.FCIvector) for ci in civec])
-                except ValueError:
-                    pass
-            elif abs(pw[0]-pw[1]) > 1e-12:
-                civec = numpy.empty((na*na))
-                civec[addr] = pv[:,0]
-                civec = civec.reshape(na,na)
-                civec = lib.transpose_sum(civec) * .5
-                # direct diagonalization may lead to triplet ground state
-
-                #TODO: optimize initial guess.  Using pspace vector as initial guess may have
-                # spin problems.  The 'ground state' of psapce vector may have different spin
-                # state to the true ground state.
-                try:
-                    return (pw[0]+ecore,
-                            _check_(civec.reshape(na,na)).view(direct_spin1.FCIvector))
-                except ValueError:
-                    pass
-    except NotImplementedError:
-        addr = [0]
-        pw = pv = None
-
-    precond = fci.make_precond(hdiag, pw, pv, addr)
-
-    h2e = fci.absorb_h1e(h1e, eri, norb, nelec, .5)
-    if hop is None:
-        def hop(c):
-            hc = fci.contract_2e(h2e, c.reshape(na,na), norb, nelec, link_index)
-            return hc.ravel()
+    if sym_idx is None:
+        precond = fci.make_precond(hdiag)
+    else:
+        precond = fci.make_precond(hdiag[sym_idx])
 
     h2e = fci.absorb_h1e(h1e, eri, norb, nelec, .5)
     if hop is None:
@@ -358,11 +339,7 @@ def kernel_ms0(fci, h1e, eri, norb, nelec, ci0=None, link_index=None,
                        max_cycle=max_cycle, max_space=max_space, nroots=nroots,
                        max_memory=max_memory, verbose=log, follow_state=True,
                        tol_residual=tol_residual, **kwargs)
-    if nroots > 1:
-        return (e+ecore,
-                [_check_(ci.reshape(na,na)).view(direct_spin1.FCIvector) for ci in c])
-    else:
-        return e+ecore, _check_(c.reshape(na,na)).view(direct_spin1.FCIvector)
+    return e+ecore, c
 
 def _check_(c):
     c = lib.transpose_sum(c, inplace=True)
@@ -449,18 +426,6 @@ class FCISolver(direct_spin1.FCISolver):
         return link_index
 
 FCI = FCISolver
-
-
-def _unpack(norb, nelec, link_index):
-    if link_index is None:
-        if isinstance(nelec, (int, numpy.number)):
-            neleca = nelec//2
-        else:
-            neleca, nelecb = nelec
-            assert (neleca == nelecb)
-        return cistring.gen_linkstr_index_trilidx(range(norb), neleca)
-    else:
-        return link_index
 
 
 if __name__ == '__main__':
