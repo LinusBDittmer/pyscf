@@ -23,6 +23,7 @@ from pyscf.mp import ump2
 from pyscf.mp import gmp2
 from pyscf.mp import dfgmp2
 from pyscf.mp import ordmp2
+from pyscf.mp import reg2mp2
 
 def MP2(mf, frozen=None, mo_coeff=None, mo_occ=None):
     if mf.istype('UHF'):
@@ -79,3 +80,6 @@ GMP2.__doc__ = gmp2.GMP2.__doc__
 def ORDMP2(mf, **kwargs):
     return ordmp2.ORDMP2(mf, **kwargs)
 ORDMP2.__doc__ = ordmp2.ORDMP2.__doc__
+
+def Reg2MP2(mf, **kwargs):
+    return reg2mp2.Reg2MP2(mf, **kwargs)

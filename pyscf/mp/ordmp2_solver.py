@@ -132,18 +132,26 @@ class NewTRAH_Minimiser(ORDMP2_Solver):
 
         return numpy.zeros_like(grad), False, val
 
+    def eff_val(self, x, mo_coeff, mo_energy, mo_occ, n_occ, n_vir):
+        return self.ordmp.criterion(x, mo_coeff, mo_energy, mo_occ, n_occ, n_vir)
+
+    def eff_grad(self, mo_coeff, mo_energy, mo_occ, n_occ, n_vir):
+        return self.ordmp.crit_grad(mo_coeff, mo_energy, mo_occ, n_occ, n_vir)
+
+    def eff_hess(self, mo_coeff, mo_energy, mo_occ, n_occ, n_vir):
+        return self.ordmp.crit_hess(mo_coeff, mo_energy, mo_occ, n_occ, n_vir)
+
     def next_step(self, mo_coeff, mo_energy, mo_occ, n_occ, n_vir, step):
         # Adapted from SciPy trust-ncg
         # https://github.com/scipy/scipy/blob/main/scipy/optimize/_trustregion.py
 
         self.ordmp._mp2.kernel(mo_coeff=mo_coeff, mo_energy=mo_energy, with_t2=True)
-        grad = self.ordmp.crit_grad(mo_coeff, mo_energy, mo_occ, n_occ=n_occ, n_vir=n_vir)
-        hess = self.ordmp.crit_hess(mo_coeff, mo_energy, mo_occ, n_occ=n_occ, n_vir=n_vir)
-        val = self.ordmp.criterion(None, mo_coeff, mo_energy, mo_occ, n_occ=n_occ, n_vir=n_vir)
+        grad = self.eff_grad(mo_coeff, mo_energy, mo_occ, n_occ, n_vir)
+        hess = self.eff_hess(mo_coeff, mo_energy, mo_occ, n_occ, n_vir)
+        val = self.eff_val(None, mo_coeff, mo_energy, mo_occ, n_occ, n_vir)
 
         x_proposed, hits_boundary, predicted_val = self.solve_local(val, grad, hess)
-        actual_reduction = val - self.ordmp.criterion(x_proposed, mo_coeff, mo_energy, mo_occ,
-                                                      n_occ=n_occ, n_vir=n_vir)
+        actual_reduction = val-self.eff_val(x_proposed, mo_coeff, mo_energy, mo_occ, n_occ, n_vir)
         predicted_reduction = val - predicted_val
         rho = actual_reduction / predicted_reduction
         if rho <= 0:
@@ -162,6 +170,79 @@ class NewTRAH_Minimiser(ORDMP2_Solver):
         if rho >= self.accept_step_ratio:
             return x_proposed
         return numpy.zeros_like(x_proposed)
+
+class NewTRAH_Minimiser_Constrained(NewTRAH_Minimiser):
+
+    def __init__(self, ordmp, stepsize = 0.5, initial_trust_radius=0.2, max_trust_radius=1000.0,
+                 lower_trust_ratio=0.25, upper_trust_ratio=0.75, lower_trust_fac=0.25,
+                 upper_trust_fac=2.0, accept_step_ratio=0.02):
+        super().__init__(ordmp, stespize, initial_trust_radius, max_trust_radius, lower_trust_ratio,
+                         upper_trust_ratio, lower_trust_fac, upper_trust_fac, accept_step_ratio)
+        self.eq_vals = []
+        self.eq_grads = []
+        self.eq_hesss = []
+        self.eq_multipliers = []
+
+        self.ineq_vals = []
+
+    def add_constraint(self, shape, value, gradient, hessian, ctype='eq'):
+        if ctype not in ['eq', 'ineq']:
+            raise ValueError(f"Invalid constraint type {ctype}. Only eq, ineq allowed.")
+       
+        if ctype == 'eq':
+            self.eq_vals.append(value)
+            self.eq_grads.append(gradient)
+            self.eq_hesss.append(hessian)
+            self.eq_multiplier.append(numpy.zeros(shape))
+        else:
+            self.ineq_vals.append(value)
+
+    def eff_val(x, mo_coeff, mo_energy, mo_occ, n_occ, n_vir):
+        n_param = int((n_occ * (n_occ - 1) + n_vir * (n_vir - 1)) // 2)
+        if x is None:
+            n_param_eff = n_param
+            for m in self.eq_multipliers:
+                n_param_eff += m.shape[0]
+            x = numpy.zeros(n_param_eff)
+        else:
+            n_param_eff = len(x)
+        prim_val = self.ordmp.criterion(x[:n_param], mo_coeff, mo_energy, mo_occ, n_occ, n_vir)
+        for i, mult in enumerate(self.eq_multipliers):
+            prim_val -= numpy.dot(mult, self.eq_vals[i](x, mo_coeff, mo_energy, mo_occ, n_occ, 
+                                                        n_vir))
+        return prim_val
+
+    def eff_grad(mo_coeff, mo_energy, mo_occ, n_occ, n_vir):
+        n_param = int((n_occ * (n_occ - 1) + n_vir * (n_vir - 1)) // 2)
+        n_param_eff = n_param
+        for m in self.eq_multipliers:
+            n_param_eff += m.shape[0]
+        grad = numpy.zeros(n_param_eff)
+        grad[:n_param] = self.ordmp.crit_grad(mo_coeff, mo_energy, mo_occ, n_occ, n_vir)
+        l_offset = 0
+        for i, mult in enumerate(self.eq_multipliers):
+            grad[:n_param] -= numpy.einsum('pq,p', self.eq_grads[i](mo_coeff, mo_energy, mo_occ, n_occ, n_vir), mult)
+            grad[n_param+l_offset:n_param+l_offset+mult.shape[0]] = - self.eq_vals[i](None, mo_coeff, mo_energy, mo_occ, n_occ, n_vir)
+            l_offset += mult.shape[0]
+        return grad
+
+    def eff_hess(mo_coeff, mo_energy, mo_occ, n_occ, n_vir):
+        n_param = int((n_occ * (n_occ - 1) + n_vir * (n_vir - 1)) // 2)
+        n_param_eff = n_param
+        for m in self.eq_multipliers:
+            n_param_eff += m.shape[0]
+        hess = numpy.zeros((n_param_eff, n_param_eff))
+        hess[:n_param,:n_param] = self.ordmp.crit_hess(mo_coeff, mo_energy, mo_occ, n_occ, n_vir)
+        l_offset = 0
+        for i, mult in enumerate(self.eq_multipliers):
+            hess[:n_param,:n_param] -= numpy.einsum('pqr,p', self.eq_hesss[i](mo_coeff, mo_energy, mo_occ, n_occ, n_vir), mult)
+            coupl = -self.eq_grads[i](mo_coeff, mo_energy, mo_occ, n_occ, n_vir)
+            hess[n_param:,l_offset:l_offset+mult.shape[0]] = coupl
+            hess[l_offset:l_offset+mult.shape[0],n_param:] = coupl.T
+        return hess
+
+    def next_step(self, mo_coeff, mo_energy, mo_occ, n_occ, n_vir, step):
+        prop = super().next_step(mo_coeff, mo_energy, mo_occ, n_occ, n_vir, step)
 
 
 class NR_RootSolver(ORDMP2_Solver):

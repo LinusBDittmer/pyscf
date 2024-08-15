@@ -504,7 +504,7 @@ class MP2(lib.StreamObject):
         self.stdout = self.mol.stdout
         self.max_memory = mf.max_memory
 
-        self.frozen = frozen
+        self.frozen = None
 
 # For iterative MP2
         self.level_shift = 0
